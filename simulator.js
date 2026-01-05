@@ -1,3 +1,5 @@
+console.log("### SIMULATOR VERSION 2026-01-05 NO ASSERT ###");
+
 // simulator.js
 import fs from "fs";
 import path from "path";
