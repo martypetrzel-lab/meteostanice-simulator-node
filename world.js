@@ -1,25 +1,70 @@
-export function simulateWorld(state, hours, deltaMs) {
-  /* ===== SVĚTLO ===== */
-  let lightBase = 0;
-  if (hours >= 6 && hours <= 20) {
-    const x = (hours - 6) / 14;
-    lightBase = Math.sin(Math.PI * x) * 100000;
+export function simulateWorld(state, hour, deltaMs) {
+  state.world ??= {};
+  state.world.event ??= generateDailyEvent(state);
+
+  const event = state.world.event;
+
+  // ===== ZÁKLADNÍ DEN/NOC =====
+  let baseLight = state.time.isDay
+    ? Math.max(0, Math.sin((hour - 6) / 14 * Math.PI)) * 80000
+    : 0;
+
+  let baseTemp = 12 + Math.sin((hour - 6) / 24 * Math.PI * 2) * 8;
+
+  // ===== EVENT DOPAD =====
+  if (event.type === "rain") {
+    baseLight *= 0.15;
+    baseTemp -= 2;
   }
 
-  // mraky – pomalé změny
-  if (!state.world.cloudiness) state.world.cloudiness = Math.random();
-  state.world.cloudiness += (Math.random() - 0.5) * 0.01;
-  state.world.cloudiness = Math.max(0, Math.min(1, state.world.cloudiness));
+  if (event.type === "cloudy") {
+    baseLight *= 0.4;
+  }
 
-  const cloudPenalty = state.world.cloudiness * 60000;
-  state.device.light = Math.max(0, lightBase - cloudPenalty);
+  if (event.type === "heatwave") {
+    baseTemp += 8;
+  }
 
-  /* ===== TEPLOTA ===== */
-  const dayTarget = 22;
-  const nightTarget = 8;
-  const targetTemp = hours >= 6 && hours <= 20 ? dayTarget : nightTarget;
+  if (event.type === "frost") {
+    baseTemp -= 6;
+  }
 
-  const diff = targetTemp - state.device.temperature;
-  state.device.temperature += diff * 0.0008 * (deltaMs / 1000);
-  state.device.temperature += (Math.random() - 0.5) * 0.02;
+  if (event.type === "front") {
+    baseLight *= 0.5;
+    baseTemp += Math.sin(hour * 4) * 3;
+  }
+
+  state.world.environment = {
+    temperature: Number(baseTemp.toFixed(2)),
+    light: Math.round(baseLight)
+  };
+
+  // přenos do zařízení
+  state.device.light = state.world.environment.light;
+
+  // pomalá teplotní setrvačnost zařízení
+  state.device.temperature +=
+    (state.world.environment.temperature - state.device.temperature) * 0.05;
+}
+
+function generateDailyEvent(state) {
+  const dayKey = new Date(state.time.now).toDateString();
+  state._eventHistory ??= {};
+
+  if (state._eventHistory[dayKey]) {
+    return state._eventHistory[dayKey];
+  }
+
+  const roll = Math.random();
+  let event;
+
+  if (roll < 0.15) event = { type: "rain" };
+  else if (roll < 0.35) event = { type: "cloudy" };
+  else if (roll < 0.5) event = { type: "heatwave" };
+  else if (roll < 0.6) event = { type: "frost" };
+  else if (roll < 0.75) event = { type: "front" };
+  else event = { type: "clear" };
+
+  state._eventHistory[dayKey] = event;
+  return event;
 }

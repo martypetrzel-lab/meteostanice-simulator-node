@@ -1,78 +1,51 @@
 export function brainDecision(state) {
-  const mem = state.memory.today;
   const soc = state.device.battery.soc;
   const temp = state.device.temperature;
+  const event = state.world.event?.type ?? "clear";
   const isDay = state.time.isDay;
 
-  /* ===== TRENDY ===== */
-  const lastTemps = mem.temperature.slice(-3);
-  const lastLights = mem.light.slice(-3);
-
-  const tempTrend =
-    lastTemps.length >= 2
-      ? lastTemps[lastTemps.length - 1].v -
-        lastTemps[0].v
-      : 0;
-
-  const lightTrend =
-    lastLights.length >= 2
-      ? lastLights[lastLights.length - 1].v -
-        lastLights[0].v
-      : 0;
-
-  /* ===== PREDIKCE ===== */
-  const tempWillRise = tempTrend > 0.3;
-  const lightDropping = lightTrend < -200;
-  const solarWeak = !isDay || state.device.light < 20000;
-
-  /* ===== REŽIMY ===== */
   let mode = "ACTIVE";
   let fan = false;
   let reasons = [];
-  let confidence = 0.6;
+  let confidence = 0.7;
 
+  // ===== KRITICKÉ STAVY =====
   if (soc < 0.12) {
-    mode = "CRITICAL";
-    reasons.push("SOC kriticky nízké");
-    confidence = 0.95;
-    return { mode, fan, reasons, confidence };
+    return {
+      mode: "CRITICAL",
+      fan: false,
+      reasons: ["SOC kriticky nízké"],
+      confidence: 0.95
+    };
   }
 
-  if (!isDay && soc < 0.25) {
-    mode = "NIGHT_SAVE";
-    reasons.push("Noc – šetření energie");
-    confidence = 0.85;
+  // ===== EVENT LOGIKA =====
+  if (event === "rain" || event === "cloudy") {
+    reasons.push("Nízké světlo – event " + event);
+    if (!isDay && soc < 0.3) mode = "SAVE";
   }
 
-  /* ===== ROZHODOVÁNÍ VĚTRÁKU ===== */
-  if (mode === "ACTIVE") {
-    if (temp > 30) {
-      fan = true;
-      reasons.push("Teplota vysoká");
-    }
-
-    if (tempWillRise) {
-      fan = true;
-      reasons.push("Trend: teplota roste");
-    }
-
-    if (fan && solarWeak && soc < 0.35) {
-      fan = false;
-      reasons.push("Penalizace: slabé nabíjení");
-      confidence = 0.8;
-    }
+  if (event === "heatwave") {
+    reasons.push("Vlna horka");
+    if (temp > 28) fan = true;
   }
 
-  /* ===== OCHRANA ===== */
-  if (fan && temp < 26 && !tempWillRise) {
+  if (event === "frost") {
+    reasons.push("Mráz – chlazení zbytečné");
     fan = false;
-    reasons.push("Teplota stabilní – větrák vypnut");
   }
 
-  return {
-    mode,
-    fan,
-    reasons,
-    confidence
-  };
+  // ===== STANDARD =====
+  if (temp > 30) {
+    fan = true;
+    reasons.push("Vysoká teplota");
+  }
+
+  // penalizace větráku při slabé energii
+  if (fan && soc < 0.35 && !isDay) {
+    fan = false;
+    reasons.push("Penalizace – energie");
+  }
+
+  return { mode, fan, reasons, confidence };
 }

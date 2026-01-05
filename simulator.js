@@ -6,9 +6,8 @@ export default class Simulator {
     this.state = state;
 
     this.state.time ??= { now: Date.now(), lastTick: Date.now(), isDay: true };
-    this.state.world ??= {};
     this.state.device ??= {
-      temperature: 10,
+      temperature: 15,
       light: 0,
       fan: false,
       battery: { voltage: 3.9, soc: 0.6 },
@@ -35,14 +34,13 @@ export default class Simulator {
 
     simulateWorld(this.state, h, deltaMs);
     this.handleEnergy(deltaMs);
-    this.measureIfNeeded(now);
+    this.measure(now);
     this.runBrain(now);
   }
 
   runBrain(now) {
     const brain = brainDecision(this.state);
 
-    // hysterese větráku (min. 5 min běhu)
     if (brain.fan && !this.state.device.fan) {
       this.fanLockUntil = now + 5 * 60_000;
       this.state.device.fan = true;
@@ -61,20 +59,18 @@ export default class Simulator {
       : 0;
 
     const baseLoad = 0.12;
-    const fanLoad = this.state.device.fan ? 1.0 : 0;
+    const fanLoad = this.state.device.fan ? 1.0 : 0; // 5V × 0.2A
 
     this.state.device.power.solarInW = Number(solar.toFixed(3));
     this.state.device.power.loadW = baseLoad + fanLoad;
 
     const balanceW = solar - this.state.device.power.loadW;
-    this.state.device.power.balanceWh += balanceW * (deltaMs / 3600000);
-
     this.state.device.battery.soc += balanceW * 0.00005;
     this.state.device.battery.soc = Math.max(0, Math.min(1, this.state.device.battery.soc));
   }
 
-  measureIfNeeded(now) {
-    if (now - this.lastMeasure.temp > 5 * 60_000) {
+  measure(now) {
+    if (now - this.lastMeasure.temp > 300_000) {
       this.lastMeasure.temp = now;
       this.state.memory.today.temperature.push({
         t: new Date(now).toLocaleTimeString(),
@@ -82,23 +78,11 @@ export default class Simulator {
       });
     }
 
-    if (now - this.lastMeasure.light > 5 * 60_000) {
+    if (now - this.lastMeasure.light > 300_000) {
       this.lastMeasure.light = now;
       this.state.memory.today.light.push({
         t: new Date(now).toLocaleTimeString(),
         v: Math.round(this.state.device.light)
-      });
-    }
-
-    if (now - this.lastMeasure.energy > 5 * 60_000) {
-      this.lastMeasure.energy = now;
-      this.state.memory.today.energyIn.push({
-        t: new Date(now).toLocaleTimeString(),
-        v: this.state.device.power.solarInW
-      });
-      this.state.memory.today.energyOut.push({
-        t: new Date(now).toLocaleTimeString(),
-        v: this.state.device.power.loadW
       });
     }
   }
