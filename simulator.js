@@ -1,155 +1,164 @@
-// simulator.js
 import World from "./world.js";
 
 export default class Simulator {
   constructor(state = {}) {
     this.state = state;
 
-    /* ===== TIME ===== */
-    this.state.time ??= {
-      now: Date.now(),
-      lastTick: Date.now()
+    // ===== TIME =====
+    this.state.time ??= { now: Date.now(), lastTick: Date.now() };
+
+    // ===== DEVICE =====
+    this.state.device ??= {};
+    this.state.device.temperature ??= 15;
+    this.state.device.light ??= 0;
+    this.state.device.humidity ??= 50;
+    this.state.device.fan ??= false;
+
+    this.state.device.battery ??= {
+      voltage: 3.8,
+      soc: 0.6
     };
 
-    /* ===== DEVICE ===== */
-    this.state.device ??= {
-      temperature: 15,
-      light: 0,
-      battery: {
-        voltage: 3.9,
-        soc: 0.6
-      },
-      fan: false
+    this.state.device.power ??= {
+      solarInW: 0,
+      loadW: 0,
+      balanceWh: 0
     };
 
-    /* ===== MEMORY ===== */
+    // ===== MEMORY =====
     this.state.memory ??= {};
     this.state.memory.today ??= {};
     this.state.memory.today.temperature ??= [];
     this.state.memory.today.light ??= [];
+    this.state.memory.today.energyIn ??= [];
+    this.state.memory.today.energyOut ??= [];
 
     this.state.memory.history ??= { days: [] };
 
-    /* ===== MOZEK ===== */
-    this.state.brain ??= {
-      mode: "learning", // learning | normal | saving | critical
-      confidence: 0,
-      prediction: {
-        nextTemp: null,
-        nextLight: null
-      },
-      decisions: {
-        fan: false
-      },
-      message: "Učím se prostředí"
-    };
+    // ===== WORLD =====
+    this.world = new World(this.state);
 
-    /* ===== WORLD ===== */
-    this.world = new World();
-
-    /* ===== INTERVALY ===== */
-    this.lastTempMeasure = 0;
-    this.lastLightMeasure = 0;
+    // ===== INTERNAL =====
+    this.lastMeasure = 0;
+    this.penalty = 0;
   }
 
-  /* ======================= */
   tick() {
     const now = Date.now();
-    const delta = now - this.state.time.lastTick;
+    const deltaH = (now - this.state.time.lastTick) / 3600000;
     this.state.time.lastTick = now;
     this.state.time.now = now;
 
-    // 1️⃣ Svět
-    const worldData = this.world.simulate(now);
-    this.state.device.light = worldData.light;
+    // 🌍 svět
+    this.world.tick(now);
 
-    // 2️⃣ Teplota – pomalá reakce na svět
-    const tempTarget = worldData.isDay ? 22 : 10;
-    this.state.device.temperature +=
-      (tempTarget - this.state.device.temperature) * 0.001;
+    // 📥 světlo
+    this.state.device.light = this.state.world.environment.light;
 
-    // 3️⃣ Měření
-    this.measure(now, worldData.isDay);
+    // ⚡ energie
+    this.computeEnergy(deltaH);
 
-    // 4️⃣ MOZEK
-    this.brainTick(worldData.isDay);
+    // 🌬️ mozek – větrák
+    this.decideFan();
 
-    return this.state;
+    // 🌡️ fyzika teploty
+    this.simulateTemperature(deltaH);
+
+    // 📝 měření
+    this.measure(now);
   }
 
-  /* ======================= */
-  measure(now, isDay) {
-    const tempInterval = isDay ? 5 * 60_000 : 20 * 60_000;
-    const lightInterval = isDay ? 5 * 60_000 : 30 * 60_000;
+  computeEnergy(deltaH) {
+    const light = this.state.device.light;
 
-    if (now - this.lastTempMeasure > tempInterval) {
-      this.lastTempMeasure = now;
-      this.state.memory.today.temperature.push({
-        t: new Date(now).toLocaleTimeString(),
-        v: Number(this.state.device.temperature.toFixed(2))
-      });
-    }
+    // solár ~ 0–1W
+    const solar = Math.min(1, light / 100000);
+    const fanLoad = this.state.device.fan ? 1.0 : 0.2;
 
-    if (now - this.lastLightMeasure > lightInterval) {
-      this.lastLightMeasure = now;
-      this.state.memory.today.light.push({
-        t: new Date(now).toLocaleTimeString(),
-        v: Math.round(this.state.device.light)
-      });
-    }
-  }
+    this.state.device.power.solarInW = Number(solar.toFixed(3));
+    this.state.device.power.loadW = fanLoad;
 
-  /* ======================= */
-  brainTick(isDay) {
-    const tempHist = this.state.memory.today.temperature;
-    const lightHist = this.state.memory.today.light;
+    const balance = (solar - fanLoad) * deltaH;
+    this.state.device.power.balanceWh += balance;
 
-    // ===== TRENDY =====
-    const tempTrend =
-      tempHist.length > 2
-        ? tempHist[tempHist.length - 1].v -
-          tempHist[tempHist.length - 2].v
-        : 0;
-
-    const lightTrend =
-      lightHist.length > 2
-        ? lightHist[lightHist.length - 1].v -
-          lightHist[lightHist.length - 2].v
-        : 0;
-
-    // ===== PREDIKCE =====
-    this.state.brain.prediction.nextTemp =
-      this.state.device.temperature + tempTrend * 10;
-
-    this.state.brain.prediction.nextLight =
-      this.state.device.light + lightTrend * 10;
-
-    // ===== CONFIDENCE =====
-    this.state.brain.confidence = Math.min(
+    this.state.device.battery.soc = Math.min(
       1,
-      this.state.brain.confidence + 0.0005
+      Math.max(0, this.state.device.battery.soc + balance / 5)
     );
-
-    // ===== REŽIM =====
-    if (this.state.brain.confidence < 0.3) {
-      this.state.brain.mode = "learning";
-      this.state.brain.message = "Učím se chování prostředí";
-    } else {
-      this.state.brain.mode = "normal";
-      this.state.brain.message = "Podmínky stabilní, analyzuji";
-    }
-
-    // ===== ROZHODNUTÍ (ZATÍM JEN DOPORUČENÍ) =====
-    const shouldCool =
-      this.state.brain.prediction.nextTemp > 25 &&
-      this.state.device.battery.soc > 0.5 &&
-      isDay;
-
-    this.state.brain.decisions.fan = shouldCool;
   }
 
-  /* ======================= */
+  decideFan() {
+    const t = this.state.device.temperature;
+    const soc = this.state.device.battery.soc;
+
+    if (t > 28 && soc > 0.25) {
+      this.state.device.fan = true;
+    } else if (t < 24 || soc < 0.15) {
+      this.state.device.fan = false;
+    }
+
+    if (t > 30 && soc < 0.15) {
+      this.penalty += 1;
+    }
+  }
+
+  simulateTemperature(deltaH) {
+    const env = this.state.world.environment.temperature;
+    let t = this.state.device.temperature;
+
+    // přiblížení k okolí
+    t += (env - t) * 0.05 * deltaH;
+
+    // větrák chladí
+    if (this.state.device.fan) {
+      t -= 0.8 * deltaH;
+    }
+
+    // šum
+    t += (Math.random() - 0.5) * 0.02;
+
+    this.state.device.temperature = Number(t.toFixed(2));
+  }
+
+  measure(now) {
+    if (now - this.lastMeasure < 5000) return;
+    this.lastMeasure = now;
+
+    const ts = new Date(now).toLocaleTimeString();
+
+    this.state.memory.today.temperature.push({
+      t: ts,
+      v: this.state.device.temperature
+    });
+
+    this.state.memory.today.light.push({
+      t: ts,
+      v: Math.round(this.state.device.light)
+    });
+
+    this.state.memory.today.energyIn.push({
+      t: ts,
+      v: this.state.device.power.solarInW
+    });
+
+    this.state.memory.today.energyOut.push({
+      t: ts,
+      v: this.state.device.power.loadW
+    });
+  }
+
   getState() {
+    this.state.message =
+      this.penalty > 0
+        ? "⚠️ Energetický stres – optimalizuji"
+        : "Podmínky stabilní, systém v rovnováze";
+
+    this.state.details = [
+      `SOC: ${(this.state.device.battery.soc * 100).toFixed(0)} %`,
+      `Větrák: ${this.state.device.fan ? "ZAP" : "VYP"}`,
+      `Penalty: ${this.penalty}`
+    ];
+
     return this.state;
   }
 }
