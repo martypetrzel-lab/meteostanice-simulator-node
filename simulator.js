@@ -2,9 +2,11 @@ import { deviceTick } from "./device.js";
 import { worldTick } from "./world.js";
 
 export class Simulator {
-  constructor(initialState = {}) {
-    // ✅ VŽDY existuje state
-    this.state = initialState;
+  constructor(initialState) {
+    // ✅ absolutní pojistka
+    this.state = initialState && typeof initialState === "object"
+      ? initialState
+      : {};
 
     /* ===== TIME ===== */
     if (!this.state.time) {
@@ -42,7 +44,6 @@ export class Simulator {
 
   tick() {
     this.state.time.now = Date.now();
-
     worldTick(this.state);
     deviceTick(this.state);
   }
