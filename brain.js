@@ -1,16 +1,14 @@
-// brain.js
-
 export function updateBrain(state) {
   const soc = Math.round(state.battery.soc * 100);
-  const light = Math.round(state.sensors.light);
+  const light = Math.round(state.device.light);
 
   let message = "Čekám na data…";
   let details = [];
 
   if (soc < 20) {
-    message = "Kritická baterie, šetřím energii";
+    message = "Nízká baterie, šetřím energii";
     details.push(`SOC: ${soc} %`);
-  } else if (light > 300 && soc < 95) {
+  } else if (light > 300) {
     message = "Dostatek energie, nabíjím";
     details.push(`SOC: ${soc} %`);
     details.push(`Světlo: ${light} lx`);
@@ -20,8 +18,5 @@ export function updateBrain(state) {
     details.push(`Světlo: ${light} lx`);
   }
 
-  return {
-    message,
-    details
-  };
+  return { message, details };
 }
