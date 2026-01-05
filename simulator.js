@@ -6,11 +6,13 @@ import { createWorld } from "./world.js";
 export class Simulator {
   constructor() {
     this.world = createWorld();
+
     this.state = {
       time: {
         now: Date.now(),
         lastDay: new Date().toDateString()
       },
+
       device: {
         temperature: 15,
         humidity: 50,
@@ -26,104 +28,70 @@ export class Simulator {
           balanceWh: 0
         }
       },
+
       memory: createMemoryRoot(),
-      message: ""
+      message: "Inicializace",
+      details: []
     };
   }
 
   tick() {
-    this.world.tick();
     this.state.time.now = Date.now();
 
-    this.simulateSensors();
-    this.storeToday();
-    this.checkDayChange();
+    this.handleDayChange();
+    this.simulateEnvironment();
+    this.measure();
     this.think();
   }
 
-  simulateSensors() {
-    const env = this.world.environment;
-    const dev = this.state.device;
-
-    dev.temperature = env.temperature;
-    dev.light = env.light;
-
-    dev.power.solarInW = env.light > 300 ? env.light / 2000 : 0;
-    dev.power.loadW = dev.fan ? 1.0 : 0.2;
-
-    dev.power.balanceWh =
-      (dev.power.solarInW - dev.power.loadW) / 3600;
-
-    dev.battery.soc = Math.min(
-      1,
-      Math.max(0, dev.battery.soc + dev.power.balanceWh)
-    );
-  }
-
-  storeToday() {
-    const t = new Date(this.state.time.now).toLocaleTimeString();
-    const m = this.state.memory.today;
-
-    m.temperature.push({ t, v: this.state.device.temperature });
-    m.light.push({ t, v: this.state.device.light });
-    m.energyIn.push({ t, v: this.state.device.power.solarInW });
-    m.energyOut.push({ t, v: this.state.device.power.loadW });
-  }
-
-  checkDayChange() {
+  handleDayChange() {
     const today = new Date().toDateString();
+
     if (today !== this.state.time.lastDay) {
-      this.finalizeDay();
+      const summary = createDaySummary(
+        this.state.time.lastDay,
+        this.state.memory
+      );
+
+      this.state.memory.history.days.push(summary);
+      this.state.memory.today = createMemoryRoot().today;
       this.state.time.lastDay = today;
     }
   }
 
-  finalizeDay() {
-    const m = this.state.memory.today;
+  simulateEnvironment() {
+    const env = this.world.environment;
 
-    const summary = createDaySummary(this.state.time.lastDay);
+    this.state.device.temperature += (env.temperature - this.state.device.temperature) * 0.05;
+    this.state.device.light = env.light;
+  }
 
-    const avg = arr =>
-      arr.reduce((s, x) => s + x.v, 0) / arr.length;
+  safePush(bucket, value) {
+    if (!Array.isArray(bucket)) return;
+    bucket.push({
+      t: new Date().toLocaleTimeString(),
+      v: value
+    });
+  }
 
-    summary.temperature.min = Math.min(...m.temperature.map(x => x.v));
-    summary.temperature.max = Math.max(...m.temperature.map(x => x.v));
-    summary.temperature.avg = avg(m.temperature);
+  measure() {
+    const mem = this.state.memory.today;
 
-    summary.light.min = Math.min(...m.light.map(x => x.v));
-    summary.light.max = Math.max(...m.light.map(x => x.v));
-    summary.light.avg = avg(m.light);
+    // ⛑️ DEFENZIVA – kdyby cokoli chybělo
+    if (!mem.temperature) return;
 
-    summary.energy.in = m.energyIn.reduce((s, x) => s + x.v, 0);
-    summary.energy.out = m.energyOut.reduce((s, x) => s + x.v, 0);
-    summary.energy.balance = summary.energy.in - summary.energy.out;
-
-    this.state.memory.days.push(summary);
-    if (this.state.memory.days.length > 7) {
-      this.state.memory.history.push(this.state.memory.days.shift());
-    }
-
-    this.state.memory.today = {
-      temperature: [],
-      humidity: [],
-      light: [],
-      energyIn: [],
-      energyOut: []
-    };
+    this.safePush(mem.temperature, this.state.device.temperature);
+    this.safePush(mem.humidity, this.state.device.humidity);
+    this.safePush(mem.light, this.state.device.light);
+    this.safePush(mem.energyIn, this.state.device.power.solarInW);
+    this.safePush(mem.energyOut, this.state.device.power.loadW);
   }
 
   think() {
-    const decisions = decide(this.state, this.state.memory);
-    decisions.forEach(d => {
-      if (d.type === "fan") this.state.device.fan = d.value;
-    });
+    const decision = decide(this.state);
 
-    this.state.message = decisions
-      .map(d => `${d.type}: ${d.reason}`)
-      .join(" | ");
-  }
-
-  getState() {
-    return this.state;
+    this.state.device.fan = decision.fan;
+    this.state.message = decision.message;
+    this.state.details = decision.details;
   }
 }

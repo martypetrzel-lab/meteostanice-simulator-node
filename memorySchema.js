@@ -1,5 +1,6 @@
 // memorySchema.js
-export function createTodayMemory() {
+
+export function createDayBucket() {
   return {
     temperature: [],
     humidity: [],
@@ -9,19 +10,26 @@ export function createTodayMemory() {
   };
 }
 
-export function createDaySummary(date) {
+export function createMemoryRoot() {
   return {
-    date,
-    temperature: { min: null, max: null, avg: null },
-    light: { min: null, max: null, avg: null },
-    energy: { in: 0, out: 0, balance: 0 }
+    today: createDayBucket(),
+    history: {
+      days: [] // hotové dny (summary)
+    }
   };
 }
 
-export function createMemoryRoot() {
-  return {
-    today: createTodayMemory(),
-    days: [],       // posledních 7 dní (shrnutí)
-    history: []     // archiv (neomezený)
-  };
+export function createDaySummary(day, memory) {
+  const summary = {};
+
+  for (const key of Object.keys(memory.today)) {
+    const values = memory.today[key].map(e => e.v).filter(v => v !== null);
+    summary[key] = {
+      min: values.length ? Math.min(...values) : null,
+      max: values.length ? Math.max(...values) : null
+    };
+  }
+
+  summary.day = day;
+  return summary;
 }
