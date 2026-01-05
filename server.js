@@ -10,29 +10,36 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-/* ===== LOAD STATE SAFE ===== */
+/* ================== CORS ================== */
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  next();
+});
+
+/* ================== LOAD STATE ================== */
 let initialState = {};
 try {
   const raw = fs.readFileSync(path.join(__dirname, "state.json"), "utf-8");
   initialState = JSON.parse(raw);
-} catch (e) {
-  console.warn("⚠️ state.json nenalezen nebo nečitelný – startuji s prázdným stavem");
-  initialState = {};
+} catch {
+  console.warn("⚠️ state.json nenalezen – startuji s prázdným stavem");
 }
 
-/* ===== SIMULATOR ===== */
+/* ================== SIMULATOR ================== */
 const simulator = new Simulator(initialState);
 
 setInterval(() => {
   simulator.tick();
 }, 1000);
 
-/* ===== API ===== */
+/* ================== API ================== */
 app.get("/state", (req, res) => {
   res.json(simulator.getState());
 });
 
-/* ===== START ===== */
+/* ================== START ================== */
 app.listen(PORT, () => {
-  console.log(`✅ Meteostanice běží na portu ${PORT}`);
+  console.log(`✅ Meteostanice backend běží na portu ${PORT}`);
 });
