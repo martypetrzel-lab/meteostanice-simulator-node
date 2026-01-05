@@ -1,7 +1,9 @@
+console.log("SERVER START: booting...");
+
 import fs from "fs";
 import express from "express";
 import cors from "cors";
-import { Simulator } from "./simulator.js";
+import Simulator from "./simulator.js";
 
 const app = express();
 app.use(cors({ origin: "*" }));
@@ -19,23 +21,25 @@ try {
 /* ===== SIMULATOR ===== */
 const simulator = new Simulator(initialState);
 
-/* ===== TICK ===== */
-setInterval(() => {
-  simulator.tick();
-
-  // uložit stav
-  fs.writeFileSync(
-    "./state.json",
-    JSON.stringify(simulator.getState(), null, 2)
-  );
-}, 1000);
-
 /* ===== API ===== */
 app.get("/state", (req, res) => {
-  res.json(simulator.getState());
+  res.json(simulator.state);
 });
 
+/* ===== START SERVER ===== */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log("✅ Simulator běží na portu", PORT)
-);
+console.log("SERVER READY: starting listen");
+
+app.listen(PORT, () => {
+  console.log("SERVER LISTENING");
+  console.log("✅ Simulator běží na portu", PORT);
+
+  // ⚠️ interval spouštíme AŽ KDYŽ SERVER POSLOUCHÁ
+  setInterval(() => {
+    simulator.tick();
+    fs.writeFileSync(
+      "./state.json",
+      JSON.stringify(simulator.state, null, 2)
+    );
+  }, 1000);
+});
