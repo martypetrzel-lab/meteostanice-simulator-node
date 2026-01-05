@@ -1,98 +1,65 @@
-import fs from "fs";
+// simulator.js
+
 import { worldTick } from "./world.js";
 import { deviceTick } from "./device.js";
+import { memoryTick, initMemory } from "./memory.js";
 import { updateBrain } from "./brain.js";
-import { memoryTick } from "./memory.js";
 
 export class Simulator {
-  constructor() {
-    this.file = "./state.json";
-    this.state = this.loadState();
-    this.lastSave = Date.now();
-    this.lastSample = 0;
-  }
+  constructor(state) {
+    this.state = state;
 
-  loadState() {
-    let s;
-    try {
-      s = JSON.parse(fs.readFileSync(this.file, "utf-8"));
-    } catch {
-      s = {};
+    // inicializace času
+    if (!this.state.time) {
+      this.state.time = {
+        now: Date.now(),
+        isDay: true
+      };
     }
 
-    /* 🔒 DEFENSIVNÍ INICIALIZACE */
-    s.time ??= {};
-    s.time.now ??= Date.now();
-    s.time.minuteOfDay ??= 0;
-    s.time.isDay ??= true;
+    // inicializace světa
+    if (!this.state.world) {
+      this.state.world = {};
+    }
 
-    s.world ??= {};
-    s.world.temperature ??= 10;
-    s.world.light ??= 0;
-    s.world.cloudiness ??= 0;
-    s.world.event ??= null;
+    // inicializace zařízení
+    if (!this.state.device) {
+      this.state.device = {};
+    }
 
-    s.device ??= {};
-    s.device.temperature ??= 10;
-    s.device.light ??= 0;
-    s.device.mode ??= "normal";
-    s.device.sampleInterval ??= 15;
+    // inicializace paměti
+    initMemory(this.state);
 
-    s.device.battery ??= {};
-    s.device.battery.soc ??= 0.6;
-    s.device.battery.voltage ??= 3.8;
-
-    s.device.power ??= {};
-    s.device.power.solarInW ??= 0;
-    s.device.power.loadW ??= 0.18;
-    s.device.power.balanceWh ??= 0;
-
-    s.memory ??= {};
-    s.memory.today ??= { temperature: [], energyIn: [], energyOut: [] };
-
-    s.memory.stats ??= {
-      avgLight: 0,
-      avgBalance: 0,
-      trendLight: 0
-    };
-
-    s.message ??= "";
-    s.details ??= [];
-
-    return s;
+    // první výpočet dne/noci
+    this.updateDayState();
   }
 
-  saveState() {
-    fs.writeFileSync(this.file, JSON.stringify(this.state, null, 2));
+  updateDayState() {
+    const d = new Date(this.state.time.now);
+    const h = d.getHours();
+    this.state.time.isDay = h >= 6 && h < 18;
   }
 
   tick() {
-    const now = Date.now();
-    const d = new Date(now);
+    /* ================== ČAS ================== */
+    this.state.time.now = Date.now();
+    this.updateDayState();
 
-    this.state.time.now = now;
-    this.state.time.minuteOfDay = d.getHours() * 60 + d.getMinutes();
-    this.state.time.isDay = d.getHours() >= 6 && d.getHours() <= 19;
-
+    /* ================== SVĚT ================== */
     worldTick(this.state);
+
+    /* ================== ZAŘÍZENÍ ================== */
     deviceTick(this.state);
 
-    const brain = updateBrain(this.state);
-    this.state.message = brain.message;
-    this.state.details = brain.details;
+    /* ================== PAMĚŤ ================== */
+    memoryTick(this.state);
 
-    if (now - this.lastSample > this.state.device.sampleInterval * 1000) {
-      memoryTick(this.state, d.toLocaleTimeString());
-      this.lastSample = now;
+    /* ================== MOZEK ================== */
+    updateBrain(this.state);
+
+    /* ================== HLÁŠKY ================== */
+    if (!this.state.message) {
+      this.state.message = "Systém běží";
     }
-
-    if (now - this.lastSave > 20000) {
-      this.saveState();
-      this.lastSave = now;
-    }
-  }
-
-  getState() {
-    return this.state;
   }
 }
