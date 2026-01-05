@@ -1,39 +1,17 @@
-export class Brain {
-  decide(state) {
-    const reasons = [];
-    const alternatives = [];
+export function decide(state) {
+  const { device, power } = state;
 
-    const temp = state.device.temperature;
-    const soc = state.device.battery.soc;
-    const light = state.world.environment.light;
+  if (power.soc < 0.2)
+    return "Nízký SOC – šetřím energii";
 
-    let fan = false;
+  if (device.temperature > 30 && power.soc > 0.4)
+    return "Vysoká teplota – připraven chladit";
 
-    // --- TEPLO ---
-    if (temp !== null && temp > 30) {
-      if (soc > 0.4) {
-        fan = true;
-        reasons.push("Teplota vysoká a baterie dovoluje chlazení");
-      } else {
-        alternatives.push("Chlazení odloženo – nízká baterie");
-      }
-    }
+  if (power.production > power.load)
+    return "Dostatek energie – nabíjím";
 
-    // --- PREDIKCE SVĚTLA ---
-    if (light < 200) {
-      reasons.push("Nízké světlo – šetřím energii");
-      alternatives.push("Při vyšším světle by běžel větrák");
-    }
+  if (power.production === 0)
+    return "Noc – běžím úsporně";
 
-    return {
-      fan,
-      explanation: {
-        reasons,
-        alternatives,
-        summary: fan
-          ? "Rozhodnutí: chladím"
-          : "Rozhodnutí: šetřím energii"
-      }
-    };
-  }
+  return "Podmínky stabilní";
 }

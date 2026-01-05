@@ -1,97 +1,54 @@
-import { Brain } from "./brain.js";
-import { createEmptyMemory } from "./memorySchema.js";
+import { computeLight } from "./world.js";
+import { decide } from "./brain.js";
 
 export class Simulator {
   constructor() {
-    this.brain = new Brain();
-    this.memory = createEmptyMemory();
-
     this.state = {
-      time: {
-        now: Date.now()
-      },
-      world: {
-        environment: {
-          temperature: 15,
-          light: 500
-        }
-      },
+      time: Date.now(),
       device: {
-        temperature: 25,
-        humidity: 50,
-        battery: {
-          voltage: 3.9,
-          soc: 0.6
-        },
-        power: {
-          solarInW: 0.5,
-          loadW: 0.2,
-          balanceWh: 0
-        },
+        temperature: 15,
         fan: false
       },
-      brain: {}
+      environment: {
+        light: 0
+      },
+      power: {
+        soc: 0.6,
+        production: 0,
+        load: 0
+      },
+      brain: {
+        verdict: "Inicializace"
+      }
     };
   }
 
-  tick() {
-    this.simulateWorld();
-    this.measure();
-    this.think();
-    this.consumeEnergy();
-  }
+  tick(dt = 1) {
+    this.state.time += dt * 1000;
 
-  simulateWorld() {
-    const hour = new Date().getHours();
-    const isDay = hour >= 7 && hour <= 18;
+    // 🌞 světlo
+    const targetLight = computeLight(this.state.time);
+    this.state.environment.light += (targetLight - this.state.environment.light) * 0.05;
 
-    this.state.world.environment.light = isDay
-      ? 800 + Math.random() * 200
-      : 50 + Math.random() * 50;
-  }
+    // 🔋 výroba (panel)
+    this.state.power.production = this.state.environment.light * 0.004;
 
-  measure() {
-    const t = new Date().toLocaleTimeString();
+    // 🌀 zátěž
+    this.state.power.load = this.state.device.fan ? 1.2 : 0.15;
 
-    this.memory.today.light.push({
-      t,
-      v: this.state.world.environment.light
-    });
+    // 🔋 SOC integrace
+    const delta = (this.state.power.production - this.state.power.load) / 3600;
+    this.state.power.soc = Math.min(1, Math.max(0, this.state.power.soc + delta));
 
-    this.memory.today.temperature.push({
-      t,
-      v: this.state.device.temperature
-    });
-  }
+    // 🌡️ teplota – setrvačnost
+    const ambient = 10 + this.state.environment.light * 0.01;
+    this.state.device.temperature += (ambient - this.state.device.temperature) * 0.002;
 
-  think() {
-    const decision = this.brain.decide(this.state);
-
-    this.state.device.fan = decision.fan;
-    this.state.brain = decision.explanation;
-  }
-
-  consumeEnergy() {
-    const FAN_W = this.state.device.fan ? 1.0 : 0;
-    const BASE_W = 0.2;
-
-    this.state.device.power.loadW = BASE_W + FAN_W;
-
-    const delta =
-      (this.state.device.power.solarInW -
-        this.state.device.power.loadW) /
-      3600;
-
-    this.state.device.battery.soc = Math.min(
-      1,
-      Math.max(0, this.state.device.battery.soc + delta)
-    );
+    // 🧠 rozhodnutí
+    this.state.brain.verdict = decide(this.state);
   }
 
   getState() {
-    return {
-      ...this.state,
-      memory: this.memory
-    };
+    return this.state;
   }
 }

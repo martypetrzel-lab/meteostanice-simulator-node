@@ -1,21 +1,17 @@
-// world.js
 export function createWorld() {
   return {
-    environment: {
-      temperature: 15,
-      light: 500,
-      rain: false
-    },
-    tick() {
-      // Denní cyklus světla
-      const hour = new Date().getHours();
-      this.environment.light =
-        hour >= 6 && hour <= 18
-          ? 400 + Math.random() * 600
-          : 20 + Math.random() * 30;
-
-      // Teplota pomalu kolísá
-      this.environment.temperature += (Math.random() - 0.5) * 0.2;
-    }
+    latitude: 50.1,
+    dayLength: 24 * 60 * 60 * 1000
   };
+}
+
+export function computeLight(now) {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const t = (now % dayMs) / dayMs;
+
+  // sinus den/noc (0–1)
+  const sun = Math.max(0, Math.sin(Math.PI * (t - 0.25)));
+
+  // max cca 900 lx
+  return sun * 900;
 }
