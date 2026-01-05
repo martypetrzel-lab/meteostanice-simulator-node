@@ -1,52 +1,58 @@
+// brain.js
+
 export function updateBrain(state) {
-  const now = Date.now();
-  state.brain ??= {};
-  state.brain.lastDecision ??= 0;
-
-  // mozek přemýšlí max 1× za minutu
-  if (now - state.brain.lastDecision < 60000) {
-    return {
-      message: state.message,
-      details: state.details
-    };
+  if (!state.device || !state.device.battery || !state.device.power) {
+    return;
   }
 
-  state.brain.lastDecision = now;
+  const soc = state.device.battery.soc;          // 0–1
+  const light = state.device.light || 0;
+  const balance =
+    state.device.power.solarInW - state.device.power.loadW;
 
-  const soc = state.device.battery.soc;
-  const light = state.device.light;
-  const stats = state.memory.stats;
-
-  let mode = "normal";
-  let measureInterval = 60;
-  let message = "Stabilní provoz";
-
-  if (soc < 0.2) {
-    mode = "eco";
-    measureInterval = 120;
-    message = "Nízká baterie – omezuji činnost";
+  /* ================== VÝCHOZÍ STAV ================== */
+  if (!state.device.mode) {
+    state.device.mode = "INIT";
   }
 
-  if (soc < 0.1) {
-    mode = "sleep";
-    measureInterval = 300;
-    message = "Kritický stav – spánek";
+  let newMode = state.device.mode;
+  let message = state.message;
+
+  /* ================== ROZHODOVÁNÍ ================== */
+
+  // Kritický stav
+  if (soc < 0.15) {
+    newMode = "CRITICAL";
+    message = "Kritický stav baterie, omezuji provoz";
   }
 
-  if (light > 500 && soc > 0.6) {
-    measureInterval = 30;
-    message = "Dobré podmínky – zvýšený sběr";
+  // Úsporný režim
+  else if (soc < 0.3) {
+    newMode = "SAVING";
+    message = "Nízká kapacita baterie, šetřím energii";
   }
 
-  state.device.mode = mode;
-  state.device.measureInterval = measureInterval;
+  // Noc
+  else if (!state.time.isDay) {
+    newMode = "NIGHT";
+    message = "Noc – minimální aktivita";
+  }
 
-  return {
-    message,
-    details: [
-      `Režim: ${mode}`,
-      `Interval měření: ${measureInterval}s`,
-      `SOC: ${(soc * 100).toFixed(0)} %`
-    ]
-  };
+  // Nabíjení
+  else if (balance > 0.05) {
+    newMode = "CHARGING";
+    message = "Dostatek energie, nabíjím";
+  }
+
+  // Normální provoz
+  else {
+    newMode = "ACTIVE";
+    message = "Normální provoz";
+  }
+
+  /* ================== APLIKACE ZMĚNY ================== */
+  if (newMode !== state.device.mode) {
+    state.device.mode = newMode;
+    state.message = message;
+  }
 }
