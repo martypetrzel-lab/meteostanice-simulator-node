@@ -1,35 +1,32 @@
 // memorySchema.js
 
-export function createDayBucket() {
-  return {
-    temperature: [],
-    humidity: [],
-    light: [],
-    energyIn: [],
-    energyOut: []
-  };
-}
-
 export function createMemoryRoot() {
   return {
-    today: createDayBucket(),
+    today: {
+      temperature: [],
+      light: [],
+      energyIn: [],
+      energyOut: [],
+      decisions: [],
+      penalties: []
+    },
     history: {
-      days: [] // hotové dny (summary)
+      days: []
     }
   };
 }
 
-export function createDaySummary(day, memory) {
-  const summary = {};
+export function createDaySummary(date, memory) {
+  const avg = arr =>
+    arr.length ? arr.reduce((a, b) => a + b.v, 0) / arr.length : 0;
 
-  for (const key of Object.keys(memory.today)) {
-    const values = memory.today[key].map(e => e.v).filter(v => v !== null);
-    summary[key] = {
-      min: values.length ? Math.min(...values) : null,
-      max: values.length ? Math.max(...values) : null
-    };
-  }
-
-  summary.day = day;
-  return summary;
+  return {
+    date,
+    avgTemp: avg(memory.today.temperature),
+    avgLight: avg(memory.today.light),
+    energyIn: avg(memory.today.energyIn),
+    energyOut: avg(memory.today.energyOut),
+    penalty: memory.today.penalties.reduce((a, b) => a + b, 0),
+    decisions: memory.today.decisions.length
+  };
 }

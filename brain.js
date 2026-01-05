@@ -7,55 +7,53 @@ export function decide(state) {
   let fan = d.fan;
   let message = "Stabilní režim";
   let details = [];
-
-  // 🔋 ENERGETICKÉ PRAHY
-  const SOC_CRITICAL = 0.2;
-  const SOC_LOW = 0.35;
-  const TEMP_HIGH = 28;
-  const TEMP_TARGET = 24;
-
-  // 📉 Penalizace (uložené do paměti dne)
   let penalty = 0;
 
-  // ☀️ predikce – když je světlo, bude energie
+  // 🎯 Adaptivní prahy (učí se)
+  const historicalPenalty =
+    mem.penalties.length > 0
+      ? mem.penalties.reduce((a, b) => a + b, 0) / mem.penalties.length
+      : 0;
+
+  let TEMP_HIGH = 28;
+  if (historicalPenalty > 1) TEMP_HIGH = 30; // učí se šetřit
+
+  const SOC_CRITICAL = 0.2;
+  const SOC_LOW = 0.35;
+
   const solarLikely = d.light > 300;
 
-  // ❗ Kritický SOC → vše vypnout
   if (d.battery.soc < SOC_CRITICAL) {
     fan = false;
-    message = "KRITICKÁ BATERIE – nouzový režim";
-    details.push("SOC < 20 %");
+    message = "Nouzový režim – šetřím energii";
     penalty += 2;
-  }
-
-  // 🔥 Teplo, ale jen pokud si to můžu dovolit
-  else if (d.temperature > TEMP_HIGH) {
+  } else if (d.temperature > TEMP_HIGH) {
     if (d.battery.soc > SOC_LOW || solarLikely) {
       fan = true;
-      message = "Chladím – teplota vysoká";
-      details.push(`Teplota ${d.temperature.toFixed(1)} °C`);
+      message = "Chladím – vyhodnoceno jako bezpečné";
     } else {
       fan = false;
-      message = "Teplo, ale šetřím energii";
+      message = "Teplo, ale minulost říká šetřit";
       penalty += 1;
     }
-  }
-
-  // 🎯 Držení cílové teploty
-  else if (d.temperature > TEMP_TARGET && d.battery.soc > 0.5) {
-    fan = true;
-    message = "Jemné chlazení";
   } else {
     fan = false;
-    message = "Podmínky stabilní";
+    message = "Stabilní režim";
   }
 
-  // 📚 ukládáme penalizaci
-  if (!state.penalty) state.penalty = 0;
+  // 🧠 ULOŽENÍ ROZHODNUTÍ
+  mem.decisions.push({
+    t: new Date().toLocaleTimeString(),
+    fan,
+    temp: d.temperature,
+    soc: d.battery.soc
+  });
+
+  mem.penalties.push(penalty);
   state.penalty += penalty;
 
   details.push(`SOC: ${(d.battery.soc * 100).toFixed(0)} %`);
-  details.push(`Světlo: ${Math.round(d.light)} lx`);
+  details.push(`Penalty avg: ${historicalPenalty.toFixed(2)}`);
 
   return { fan, message, details };
 }
