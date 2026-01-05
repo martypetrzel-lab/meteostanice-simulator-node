@@ -6,46 +6,34 @@ import { memoryTick } from "./memory.js";
 
 export class Simulator {
   constructor() {
+    this.file = "./state.json";
     this.state = this.loadState();
+    this.lastSave = Date.now();
   }
 
   loadState() {
     try {
-      return JSON.parse(fs.readFileSync("./state.json", "utf-8"));
+      return JSON.parse(fs.readFileSync(this.file, "utf-8"));
     } catch {
       return {
-        time: {
-          now: Date.now(),
-          isDay: true,
-          dayIndex: 0
-        },
+        time: { now: Date.now(), isDay: true, minuteOfDay: 0 },
         world: {
-          temperature: 15,
-          light: 300,
-          cloudiness: 0
+          temperature: 10,
+          light: 0,
+          cloudiness: 0,
+          event: null
         },
         device: {
-          temperature: 15,
-          humidity: 50,
-          light: 300,
-          battery: {
-            voltage: 3.8,
-            soc: 0.6
-          },
-          power: {
-            solarInW: 0,
-            loadW: 0.18,
-            balanceWh: 0
-          },
-          fan: false
+          temperature: 10,
+          humidity: 60,
+          light: 0,
+          battery: { voltage: 3.8, soc: 0.6 },
+          power: { solarInW: 0, loadW: 0.18, balanceWh: 0 },
+          mode: "normal"
         },
         memory: {
-          today: {
-            temperature: [],
-            energyIn: [],
-            energyOut: []
-          },
-          days: []
+          today: { temperature: [], energyIn: [], energyOut: [] },
+          stats: { avgLight: 0, avgBalance: 0 }
         },
         message: "",
         details: []
@@ -53,22 +41,32 @@ export class Simulator {
     }
   }
 
+  saveState() {
+    fs.writeFileSync(this.file, JSON.stringify(this.state, null, 2));
+  }
+
   tick() {
     const now = Date.now();
-    const hours = new Date(now).getHours();
+    const d = new Date(now);
 
     this.state.time.now = now;
-    this.state.time.isDay = hours >= 7 && hours <= 18;
+    this.state.time.minuteOfDay = d.getHours() * 60 + d.getMinutes();
+    this.state.time.isDay = d.getHours() >= 6 && d.getHours() <= 19;
 
     worldTick(this.state);
     deviceTick(this.state);
 
-    const label = new Date(now).toLocaleTimeString();
+    const label = d.toLocaleTimeString();
     memoryTick(this.state, label);
 
     const brain = updateBrain(this.state);
     this.state.message = brain.message;
     this.state.details = brain.details;
+
+    if (Date.now() - this.lastSave > 15000) {
+      this.saveState();
+      this.lastSave = Date.now();
+    }
   }
 
   getState() {
