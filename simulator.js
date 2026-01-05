@@ -5,7 +5,6 @@ export default class Simulator {
   constructor(state = {}) {
     this.state = state;
 
-    /* ===== INIT SAFE ===== */
     this.state.time ??= { now: Date.now(), lastTick: Date.now(), isDay: true };
     this.state.world ??= {};
     this.state.device ??= {
@@ -22,6 +21,7 @@ export default class Simulator {
     };
 
     this.lastMeasure = { temp: 0, light: 0, energy: 0 };
+    this.fanLockUntil = 0;
   }
 
   tick() {
@@ -34,14 +34,32 @@ export default class Simulator {
     this.state.time.isDay = h >= 6 && h <= 20;
 
     simulateWorld(this.state, h, deltaMs);
-
     this.handleEnergy(deltaMs);
     this.measureIfNeeded(now);
-    this.runBrain();
+    this.runBrain(now);
+  }
+
+  runBrain(now) {
+    const brain = brainDecision(this.state);
+
+    // hysterese větráku (min. 5 min běhu)
+    if (brain.fan && !this.state.device.fan) {
+      this.fanLockUntil = now + 5 * 60_000;
+      this.state.device.fan = true;
+    }
+
+    if (!brain.fan && this.state.device.fan && now > this.fanLockUntil) {
+      this.state.device.fan = false;
+    }
+
+    this.state.brain = brain;
   }
 
   handleEnergy(deltaMs) {
-    const solar = this.state.time.isDay ? this.state.device.light / 100000 : 0;
+    const solar = this.state.time.isDay
+      ? this.state.device.light / 100000
+      : 0;
+
     const baseLoad = 0.12;
     const fanLoad = this.state.device.fan ? 1.0 : 0;
 
@@ -83,16 +101,6 @@ export default class Simulator {
         v: this.state.device.power.loadW
       });
     }
-  }
-
-  runBrain() {
-    const prediction = {
-      tempRising: Math.random() > 0.7
-    };
-
-    const brain = brainDecision(this.state, prediction);
-    this.state.device.fan = brain.fan;
-    this.state.brain = brain;
   }
 
   getHourFraction() {
