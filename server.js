@@ -1,26 +1,23 @@
+// server.js
 import express from "express";
-import fs from "fs";
+import cors from "cors";
+import { Simulator } from "./simulator.js";
 
 const app = express();
-const PORT = process.env.PORT || 8080;
-const STATE_FILE = "./state.json";
+const simulator = new Simulator();
 
-/* CORS – nutné pro GitHub Pages */
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET");
-  next();
-});
+app.use(cors());
 
 app.get("/state", (req, res) => {
-  try {
-    const state = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
-    res.json(state);
-  } catch {
-    res.status(500).json({ error: "state not ready" });
-  }
+  res.json(simulator.getState());
 });
 
+// ⏱️ TADY JE TEN KRITICKÝ ŘÁDEK
+setInterval(() => {
+  simulator.tick();
+}, 1000);
+
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log("🌐 Server běží na portu", PORT);
+  console.log("Server běží na portu", PORT);
 });
