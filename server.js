@@ -9,59 +9,40 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// ====== STATE LOADER ======
-function loadState() {
-  const raw = fs.readFileSync(path.join(__dirname, "state.json"), "utf-8");
-  return JSON.parse(raw);
-}
+/* =========================
+   CORS – POVOLIT GITHUB PAGES
+   ========================= */
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  next();
+});
 
-// ====== API: STATE ======
+/* =========================
+   ENDPOINT: /state
+   ========================= */
 app.get("/state", (req, res) => {
+  const statePath = path.join(__dirname, "state.json");
+
   try {
-    const state = loadState();
-
-    // 🔧 KOMPATIBILNÍ MAPOVÁNÍ PRO UI (KRITICKÉ)
-    res.json({
-      time: state.time,
-      day: state.time?.dayIndex ?? "--",
-
-      // UI DLAŽDICE
-      sensors: {
-        temperature: state.device?.temperature ?? null,
-        light: state.device?.light ?? null
-      },
-
-      battery: {
-        voltage: state.device?.battery?.voltage ?? null,
-        soc: state.device?.battery?.soc ?? null
-      },
-
-      power: {
-        in: state.device?.power?.solarInW ?? 0,
-        out: state.device?.power?.loadW ?? 0,
-        balanceWh: state.device?.power?.balanceWh ?? 0
-      },
-
-      // GRAFY
-      memory: state.memory,
-
-      // MOZEK
-      brain: state.brain ?? {
-        message: "Načítám…",
-        details: []
-      }
-    });
-  } catch (e) {
-    res.status(500).json({ error: "State load failed", details: e.message });
+    const data = fs.readFileSync(statePath, "utf-8");
+    res.json(JSON.parse(data));
+  } catch (err) {
+    res.status(500).json({ error: "State read failed" });
   }
 });
 
-// ====== HEALTH ======
+/* =========================
+   HEALTHCHECK
+   ========================= */
 app.get("/", (req, res) => {
-  res.send("Meteostanice simulator backend běží");
+  res.send("Meteostanice backend OK");
 });
 
-// ====== START ======
+/* =========================
+   START SERVER
+   ========================= */
 app.listen(PORT, () => {
   console.log(`Server běží na portu ${PORT}`);
 });
