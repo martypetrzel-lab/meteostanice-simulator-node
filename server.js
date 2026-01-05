@@ -1,20 +1,21 @@
-// server.js
 import express from "express";
-import cors from "cors";
 import { Simulator } from "./simulator.js";
+import state from "./state.json" assert { type: "json" };
 
 const app = express();
-app.use(cors());
+const PORT = process.env.PORT || 8080;
 
-const simulator = new Simulator();
+/* ✅ Simulator dostane EXISTUJÍCÍ state */
+const simulator = new Simulator(state);
 
-setInterval(() => simulator.tick(), 1000);
+setInterval(() => {
+  simulator.tick();
+}, 1000);
 
 app.get("/state", (req, res) => {
   res.json(simulator.getState());
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () =>
-  console.log(`✅ Meteostanice běží na portu ${PORT}`)
-);
+app.listen(PORT, () => {
+  console.log(`✅ Meteostanice běží na portu ${PORT}`);
+});
