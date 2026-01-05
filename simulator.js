@@ -1,6 +1,6 @@
 // simulator.js
 import { decide } from "./brain.js";
-import { createMemoryRoot, createDaySummary } from "./memoryschema.js";
+import { createMemoryRoot, createDaySummary } from "./memorySchema.js";
 import { createWorld } from "./world.js";
 
 export class Simulator {
