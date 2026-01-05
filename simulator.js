@@ -1,164 +1,106 @@
-import World from "./world.js";
+import { simulateWorld } from "./world.js";
+import { brainDecision } from "./brain.js";
 
 export default class Simulator {
   constructor(state = {}) {
     this.state = state;
 
-    // ===== TIME =====
-    this.state.time ??= { now: Date.now(), lastTick: Date.now() };
-
-    // ===== DEVICE =====
-    this.state.device ??= {};
-    this.state.device.temperature ??= 15;
-    this.state.device.light ??= 0;
-    this.state.device.humidity ??= 50;
-    this.state.device.fan ??= false;
-
-    this.state.device.battery ??= {
-      voltage: 3.8,
-      soc: 0.6
+    /* ===== INIT SAFE ===== */
+    this.state.time ??= { now: Date.now(), lastTick: Date.now(), isDay: true };
+    this.state.world ??= {};
+    this.state.device ??= {
+      temperature: 10,
+      light: 0,
+      fan: false,
+      battery: { voltage: 3.9, soc: 0.6 },
+      power: { solarInW: 0, loadW: 0, balanceWh: 0 }
     };
 
-    this.state.device.power ??= {
-      solarInW: 0,
-      loadW: 0,
-      balanceWh: 0
+    this.state.memory ??= {
+      today: { temperature: [], light: [], energyIn: [], energyOut: [] },
+      history: { days: [] }
     };
 
-    // ===== MEMORY =====
-    this.state.memory ??= {};
-    this.state.memory.today ??= {};
-    this.state.memory.today.temperature ??= [];
-    this.state.memory.today.light ??= [];
-    this.state.memory.today.energyIn ??= [];
-    this.state.memory.today.energyOut ??= [];
-
-    this.state.memory.history ??= { days: [] };
-
-    // ===== WORLD =====
-    this.world = new World(this.state);
-
-    // ===== INTERNAL =====
-    this.lastMeasure = 0;
-    this.penalty = 0;
+    this.lastMeasure = { temp: 0, light: 0, energy: 0 };
   }
 
   tick() {
     const now = Date.now();
-    const deltaH = (now - this.state.time.lastTick) / 3600000;
+    const deltaMs = now - this.state.time.lastTick;
     this.state.time.lastTick = now;
     this.state.time.now = now;
 
-    // 🌍 svět
-    this.world.tick(now);
+    const h = this.getHourFraction();
+    this.state.time.isDay = h >= 6 && h <= 20;
 
-    // 📥 světlo
-    this.state.device.light = this.state.world.environment.light;
+    simulateWorld(this.state, h, deltaMs);
 
-    // ⚡ energie
-    this.computeEnergy(deltaH);
-
-    // 🌬️ mozek – větrák
-    this.decideFan();
-
-    // 🌡️ fyzika teploty
-    this.simulateTemperature(deltaH);
-
-    // 📝 měření
-    this.measure(now);
+    this.handleEnergy(deltaMs);
+    this.measureIfNeeded(now);
+    this.runBrain();
   }
 
-  computeEnergy(deltaH) {
-    const light = this.state.device.light;
-
-    // solár ~ 0–1W
-    const solar = Math.min(1, light / 100000);
-    const fanLoad = this.state.device.fan ? 1.0 : 0.2;
+  handleEnergy(deltaMs) {
+    const solar = this.state.time.isDay ? this.state.device.light / 100000 : 0;
+    const baseLoad = 0.12;
+    const fanLoad = this.state.device.fan ? 1.0 : 0;
 
     this.state.device.power.solarInW = Number(solar.toFixed(3));
-    this.state.device.power.loadW = fanLoad;
+    this.state.device.power.loadW = baseLoad + fanLoad;
 
-    const balance = (solar - fanLoad) * deltaH;
-    this.state.device.power.balanceWh += balance;
+    const balanceW = solar - this.state.device.power.loadW;
+    this.state.device.power.balanceWh += balanceW * (deltaMs / 3600000);
 
-    this.state.device.battery.soc = Math.min(
-      1,
-      Math.max(0, this.state.device.battery.soc + balance / 5)
-    );
+    this.state.device.battery.soc += balanceW * 0.00005;
+    this.state.device.battery.soc = Math.max(0, Math.min(1, this.state.device.battery.soc));
   }
 
-  decideFan() {
-    const t = this.state.device.temperature;
-    const soc = this.state.device.battery.soc;
-
-    if (t > 28 && soc > 0.25) {
-      this.state.device.fan = true;
-    } else if (t < 24 || soc < 0.15) {
-      this.state.device.fan = false;
+  measureIfNeeded(now) {
+    if (now - this.lastMeasure.temp > 5 * 60_000) {
+      this.lastMeasure.temp = now;
+      this.state.memory.today.temperature.push({
+        t: new Date(now).toLocaleTimeString(),
+        v: Number(this.state.device.temperature.toFixed(2))
+      });
     }
 
-    if (t > 30 && soc < 0.15) {
-      this.penalty += 1;
+    if (now - this.lastMeasure.light > 5 * 60_000) {
+      this.lastMeasure.light = now;
+      this.state.memory.today.light.push({
+        t: new Date(now).toLocaleTimeString(),
+        v: Math.round(this.state.device.light)
+      });
+    }
+
+    if (now - this.lastMeasure.energy > 5 * 60_000) {
+      this.lastMeasure.energy = now;
+      this.state.memory.today.energyIn.push({
+        t: new Date(now).toLocaleTimeString(),
+        v: this.state.device.power.solarInW
+      });
+      this.state.memory.today.energyOut.push({
+        t: new Date(now).toLocaleTimeString(),
+        v: this.state.device.power.loadW
+      });
     }
   }
 
-  simulateTemperature(deltaH) {
-    const env = this.state.world.environment.temperature;
-    let t = this.state.device.temperature;
+  runBrain() {
+    const prediction = {
+      tempRising: Math.random() > 0.7
+    };
 
-    // přiblížení k okolí
-    t += (env - t) * 0.05 * deltaH;
-
-    // větrák chladí
-    if (this.state.device.fan) {
-      t -= 0.8 * deltaH;
-    }
-
-    // šum
-    t += (Math.random() - 0.5) * 0.02;
-
-    this.state.device.temperature = Number(t.toFixed(2));
+    const brain = brainDecision(this.state, prediction);
+    this.state.device.fan = brain.fan;
+    this.state.brain = brain;
   }
 
-  measure(now) {
-    if (now - this.lastMeasure < 5000) return;
-    this.lastMeasure = now;
-
-    const ts = new Date(now).toLocaleTimeString();
-
-    this.state.memory.today.temperature.push({
-      t: ts,
-      v: this.state.device.temperature
-    });
-
-    this.state.memory.today.light.push({
-      t: ts,
-      v: Math.round(this.state.device.light)
-    });
-
-    this.state.memory.today.energyIn.push({
-      t: ts,
-      v: this.state.device.power.solarInW
-    });
-
-    this.state.memory.today.energyOut.push({
-      t: ts,
-      v: this.state.device.power.loadW
-    });
+  getHourFraction() {
+    const d = new Date(this.state.time.now);
+    return d.getHours() + d.getMinutes() / 60;
   }
 
   getState() {
-    this.state.message =
-      this.penalty > 0
-        ? "⚠️ Energetický stres – optimalizuji"
-        : "Podmínky stabilní, systém v rovnováze";
-
-    this.state.details = [
-      `SOC: ${(this.state.device.battery.soc * 100).toFixed(0)} %`,
-      `Větrák: ${this.state.device.fan ? "ZAP" : "VYP"}`,
-      `Penalty: ${this.penalty}`
-    ];
-
     return this.state;
   }
 }

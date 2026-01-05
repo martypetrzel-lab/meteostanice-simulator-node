@@ -1,40 +1,25 @@
-export default class World {
-  constructor(state) {
-    this.state = state;
+export function simulateWorld(state, hours, deltaMs) {
+  /* ===== SVĚTLO ===== */
+  let lightBase = 0;
+  if (hours >= 6 && hours <= 20) {
+    const x = (hours - 6) / 14;
+    lightBase = Math.sin(Math.PI * x) * 100000;
   }
 
-  ensure() {
-    this.state.world ??= {};
-    this.state.world.environment ??= {};
-    this.state.world.time ??= {};
-  }
+  // mraky – pomalé změny
+  if (!state.world.cloudiness) state.world.cloudiness = Math.random();
+  state.world.cloudiness += (Math.random() - 0.5) * 0.01;
+  state.world.cloudiness = Math.max(0, Math.min(1, state.world.cloudiness));
 
-  tick(now) {
-    this.ensure();
+  const cloudPenalty = state.world.cloudiness * 60000;
+  state.device.light = Math.max(0, lightBase - cloudPenalty);
 
-    const d = new Date(now);
-    const hour = d.getHours() + d.getMinutes() / 60;
-    const isDay = hour >= 6 && hour <= 20;
+  /* ===== TEPLOTA ===== */
+  const dayTarget = 22;
+  const nightTarget = 8;
+  const targetTemp = hours >= 6 && hours <= 20 ? dayTarget : nightTarget;
 
-    // 🌞 světlo
-    let baseLight = 0;
-    if (isDay) {
-      const x = (hour - 6) / 14;
-      baseLight = Math.sin(Math.PI * x) * 100000;
-    }
-
-    // 🌥️ mraky
-    const clouds = (Math.random() - 0.5) * 8000;
-
-    this.state.world.environment.light = Math.max(0, baseLight + clouds);
-
-    // 🌡️ teplota okolí
-    const target = isDay ? 22 : 8;
-    const envTemp = this.state.world.environment.temperature ?? target;
-    this.state.world.environment.temperature =
-      envTemp + (target - envTemp) * 0.002;
-
-    this.state.world.time.now = now;
-    this.state.world.time.isDay = isDay;
-  }
+  const diff = targetTemp - state.device.temperature;
+  state.device.temperature += diff * 0.0008 * (deltaMs / 1000);
+  state.device.temperature += (Math.random() - 0.5) * 0.02;
 }

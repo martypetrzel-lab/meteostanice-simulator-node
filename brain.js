@@ -1,58 +1,42 @@
-// brain.js
+export function brainDecision(state, prediction) {
+  const soc = state.device.battery.soc;
+  const temp = state.device.temperature;
+  const isDay = state.time.isDay;
 
-export function updateBrain(state) {
-  if (!state.device || !state.device.battery || !state.device.power) {
-    return;
-  }
+  let mode = "ACTIVE";
+  let fan = false;
+  let reasons = [];
+  let confidence = 0.5;
 
-  const soc = state.device.battery.soc;          // 0–1
-  const light = state.device.light || 0;
-  const balance =
-    state.device.power.solarInW - state.device.power.loadW;
-
-  /* ================== VÝCHOZÍ STAV ================== */
-  if (!state.device.mode) {
-    state.device.mode = "INIT";
-  }
-
-  let newMode = state.device.mode;
-  let message = state.message;
-
-  /* ================== ROZHODOVÁNÍ ================== */
-
-  // Kritický stav
   if (soc < 0.15) {
-    newMode = "CRITICAL";
-    message = "Kritický stav baterie, omezuji provoz";
+    mode = "CRITICAL";
+    reasons.push("Nízké SOC");
+    confidence = 0.95;
+  } else if (!isDay && soc < 0.3) {
+    mode = "NIGHT";
+    reasons.push("Noc + šetření energie");
+    confidence = 0.8;
   }
 
-  // Úsporný režim
-  else if (soc < 0.3) {
-    newMode = "SAVING";
-    message = "Nízká kapacita baterie, šetřím energii";
+  if (mode === "ACTIVE") {
+    if (temp > 30 && soc > 0.3 && isDay) {
+      fan = true;
+      reasons.push("Vysoká teplota");
+      reasons.push("SOC dovoluje");
+      confidence = 0.85;
+    }
+
+    if (prediction.tempRising && soc > 0.4) {
+      fan = true;
+      reasons.push("Predikce růstu teploty");
+      confidence = 0.9;
+    }
   }
 
-  // Noc
-  else if (!state.time.isDay) {
-    newMode = "NIGHT";
-    message = "Noc – minimální aktivita";
-  }
-
-  // Nabíjení
-  else if (balance > 0.05) {
-    newMode = "CHARGING";
-    message = "Dostatek energie, nabíjím";
-  }
-
-  // Normální provoz
-  else {
-    newMode = "ACTIVE";
-    message = "Normální provoz";
-  }
-
-  /* ================== APLIKACE ZMĚNY ================== */
-  if (newMode !== state.device.mode) {
-    state.device.mode = newMode;
-    state.message = message;
-  }
+  return {
+    mode,
+    fan,
+    reasons,
+    confidence
+  };
 }
