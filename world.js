@@ -1,11 +1,21 @@
 // world.js
-// Budoucí rozšíření: roční období, počasí, vítr, déšť
+export default class World {
+  simulate(now) {
+    const d = new Date(now);
+    const hour = d.getHours() + d.getMinutes() / 60;
 
-export function getSeasonFactor(date = new Date()) {
-  const month = date.getMonth() + 1;
+    const isDay = hour >= 6 && hour <= 20;
 
-  if (month <= 2 || month === 12) return -5; // zima
-  if (month <= 5) return 0;                  // jaro
-  if (month <= 8) return 5;                  // léto
-  return 0;                                  // podzim
+    let light = 0;
+    if (isDay) {
+      const x = (hour - 6) / 14;
+      light = Math.sin(Math.PI * x) * 1000;
+      light += (Math.random() - 0.5) * 50; // jemný šum
+    }
+
+    return {
+      isDay,
+      light: Math.max(0, Math.round(light))
+    };
+  }
 }
