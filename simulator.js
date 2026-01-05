@@ -1,5 +1,6 @@
 // simulator.js
 // ZÁLOHA 0.2.1 – SAFE STATE + REÁLNÝ DEN
+console.log("🧠 SIMULATOR VERSION: ZALOHA 0.2.1 – SAFE STATE");
 
 export default class Simulator {
   constructor(state = {}) {
