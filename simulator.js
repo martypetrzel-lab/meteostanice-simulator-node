@@ -1,33 +1,44 @@
 // simulator.js
-// ZÁLOHA 0.2 – SIMULACE SVĚTA (TEPLOTA + SVĚTLO)
-// Reálný den / noc, řízené měření, denní min/max
+// ZÁLOHA 0.2.1 – SAFE STATE + REÁLNÝ DEN
 
 export default class Simulator {
   constructor(state = {}) {
+    // ===== TIME =====
     this.state = state;
 
-    this.state.time ??= {
-      now: Date.now(),
-      lastTick: Date.now()
-    };
+    if (!this.state.time) {
+      this.state.time = {
+        now: Date.now(),
+        lastTick: Date.now()
+      };
+    }
 
-    this.state.device ??= {
-      temperature: 10,
-      light: 0,
-      battery: { voltage: 3.9 },
-      fan: false
-    };
+    // ===== DEVICE =====
+    if (!this.state.device) {
+      this.state.device = {};
+    }
 
-    this.state.memory ??= {
-      today: {
-        temperature: [],
-        light: []
-      },
-      history: {
-        days: []
-      }
-    };
+    this.state.device.temperature ??= 10;
+    this.state.device.light ??= 0;
+    this.state.device.battery ??= { voltage: 3.9 };
+    this.state.device.fan ??= false;
 
+    // ===== MEMORY (SAFE MIGRATION) =====
+    if (!this.state.memory) this.state.memory = {};
+    if (!this.state.memory.today) this.state.memory.today = {};
+    if (!this.state.memory.history) this.state.memory.history = { days: [] };
+
+    // ⬇⬇⬇ TADY BYL PROBLÉM ⬇⬇⬇
+    if (!Array.isArray(this.state.memory.today.temperature))
+      this.state.memory.today.temperature = [];
+
+    if (!Array.isArray(this.state.memory.today.light))
+      this.state.memory.today.light = [];
+
+    if (!Array.isArray(this.state.memory.history.days))
+      this.state.memory.history.days = [];
+
+    // ===== INTERNÍ PROMĚNNÉ =====
     this.lastMeasureTemp = 0;
     this.lastMeasureLight = 0;
 
@@ -40,7 +51,7 @@ export default class Simulator {
     };
   }
 
-  /* ===== HLAVNÍ TICK ===== */
+  // ===== TICK =====
   tick() {
     const now = Date.now();
     const deltaMs = now - this.state.time.lastTick;
@@ -55,7 +66,7 @@ export default class Simulator {
     this.handleDayChange();
   }
 
-  /* ===== SVĚT ===== */
+  // ===== SVĚT =====
   simulateWorld(hours, deltaMs) {
     // světlo
     let lightBase = 0;
@@ -68,14 +79,14 @@ export default class Simulator {
     this.state.device.light = Math.max(0, lightBase + cloudNoise);
 
     // teplota
-    const targetTemp = hours >= 6 && hours <= 20 ? 22 : 8;
-    const diff = targetTemp - this.state.device.temperature;
+    const target = hours >= 6 && hours <= 20 ? 22 : 8;
+    const diff = target - this.state.device.temperature;
 
     this.state.device.temperature += diff * 0.001 * (deltaMs / 1000);
     this.state.device.temperature += (Math.random() - 0.5) * 0.02;
   }
 
-  /* ===== MĚŘENÍ ===== */
+  // ===== MĚŘENÍ =====
   measureIfNeeded(hours, now) {
     const isDay = hours >= 6 && hours <= 20;
 
@@ -107,26 +118,24 @@ export default class Simulator {
     }
   }
 
-  /* ===== MIN / MAX ===== */
+  // ===== MIN / MAX =====
   updateDailyMinMax(type, value) {
     if (type === "temp") {
-      this.dailyMinMax.minTemp ??= value;
-      this.dailyMinMax.maxTemp ??= value;
-
-      this.dailyMinMax.minTemp = Math.min(this.dailyMinMax.minTemp, value);
-      this.dailyMinMax.maxTemp = Math.max(this.dailyMinMax.maxTemp, value);
+      this.dailyMinMax.minTemp =
+        this.dailyMinMax.minTemp === null ? value : Math.min(this.dailyMinMax.minTemp, value);
+      this.dailyMinMax.maxTemp =
+        this.dailyMinMax.maxTemp === null ? value : Math.max(this.dailyMinMax.maxTemp, value);
     }
 
     if (type === "light") {
-      this.dailyMinMax.minLight ??= value;
-      this.dailyMinMax.maxLight ??= value;
-
-      this.dailyMinMax.minLight = Math.min(this.dailyMinMax.minLight, value);
-      this.dailyMinMax.maxLight = Math.max(this.dailyMinMax.maxLight, value);
+      this.dailyMinMax.minLight =
+        this.dailyMinMax.minLight === null ? value : Math.min(this.dailyMinMax.minLight, value);
+      this.dailyMinMax.maxLight =
+        this.dailyMinMax.maxLight === null ? value : Math.max(this.dailyMinMax.maxLight, value);
     }
   }
 
-  /* ===== DENNÍ UZÁVĚRKA ===== */
+  // ===== DEN =====
   handleDayChange() {
     const today = this.currentDateString();
 
@@ -150,7 +159,7 @@ export default class Simulator {
     }
   }
 
-  /* ===== POMOCNÉ ===== */
+  // ===== HELPERS =====
   getHourFraction() {
     const d = new Date(this.state.time.now);
     return d.getHours() + d.getMinutes() / 60;
