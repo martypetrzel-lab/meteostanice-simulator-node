@@ -1,24 +1,21 @@
-// server.js
-import express from "express";
+import http from "http";
 import { Simulator } from "./simulator.js";
 
-const app = express();
-const PORT = 8080;
+const sim = new Simulator();
 
-const simulator = new Simulator();
+setInterval(() => sim.tick(), 1000);
 
-setInterval(() => {
-  simulator.tick();
-}, 1000);
+const server = http.createServer((req, res) => {
+  if (req.url === "/state") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(sim.getState(), null, 2));
+    return;
+  }
 
-app.get("/", (req, res) => {
-  res.send("Meteostanice simulator running");
+  res.writeHead(404);
+  res.end("Not Found");
 });
 
-app.get("/state", (req, res) => {
-  res.json(simulator.state);
-});
-
-app.listen(PORT, () => {
-  console.log(`✅ Simulator běží na portu ${PORT}`);
+server.listen(8080, () => {
+  console.log("✅ Simulator běží na portu 8080");
 });

@@ -1,88 +1,97 @@
-// simulator.js
-import { decide } from "./brain.js";
-import { createMemoryRoot, createDaySummary } from "./memorySchema.js";
-import { createWorld } from "./world.js";
-
-const FAN_POWER_W = 1.0;
+import { Brain } from "./brain.js";
+import { createEmptyMemory } from "./memorySchema.js";
 
 export class Simulator {
   constructor() {
-    this.world = createWorld();
+    this.brain = new Brain();
+    this.memory = createEmptyMemory();
 
     this.state = {
       time: {
-        now: Date.now(),
-        lastDay: new Date().toDateString()
+        now: Date.now()
+      },
+      world: {
+        environment: {
+          temperature: 15,
+          light: 500
+        }
       },
       device: {
-        temperature: 15,
+        temperature: 25,
         humidity: 50,
-        light: 0,
-        fan: false,
-        battery: { voltage: 3.8, soc: 0.6 },
-        power: { solarInW: 0, loadW: 0, balanceWh: 0 }
+        battery: {
+          voltage: 3.9,
+          soc: 0.6
+        },
+        power: {
+          solarInW: 0.5,
+          loadW: 0.2,
+          balanceWh: 0
+        },
+        fan: false
       },
-      memory: createMemoryRoot(),
-      message: "Inicializace",
-      details: [],
-      penalty: 0
+      brain: {}
     };
   }
 
   tick() {
-    this.state.time.now = Date.now();
-    this.handleDayChange();
-    this.simulateEnvironment();
-    this.computeEnergy();
+    this.simulateWorld();
     this.measure();
     this.think();
+    this.consumeEnergy();
   }
 
-  handleDayChange() {
-    const today = new Date().toDateString();
-    if (today !== this.state.time.lastDay) {
-      this.state.memory.history.days.push(
-        createDaySummary(this.state.time.lastDay, this.state.memory)
-      );
-      this.state.memory.today = createMemoryRoot().today;
-      this.state.time.lastDay = today;
-    }
-  }
+  simulateWorld() {
+    const hour = new Date().getHours();
+    const isDay = hour >= 7 && hour <= 18;
 
-  simulateEnvironment() {
-    const env = this.world.environment;
-    this.state.device.temperature +=
-      (env.temperature - this.state.device.temperature) * 0.05;
-    this.state.device.light = env.light;
-  }
-
-  computeEnergy() {
-    const d = this.state.device;
-    d.power.solarInW = d.light > 200 ? d.light / 800 : 0;
-    d.power.loadW = d.fan ? FAN_POWER_W : 0.15;
-    const balanceW = d.power.solarInW - d.power.loadW;
-    d.power.balanceWh = balanceW / 3600;
-    d.battery.soc = Math.max(0, Math.min(1, d.battery.soc + d.power.balanceWh));
-  }
-
-  safePush(bucket, value) {
-    if (Array.isArray(bucket)) {
-      bucket.push({ t: new Date().toLocaleTimeString(), v: value });
-    }
+    this.state.world.environment.light = isDay
+      ? 800 + Math.random() * 200
+      : 50 + Math.random() * 50;
   }
 
   measure() {
-    const mem = this.state.memory.today;
-    this.safePush(mem.temperature, this.state.device.temperature);
-    this.safePush(mem.light, this.state.device.light);
-    this.safePush(mem.energyIn, this.state.device.power.solarInW);
-    this.safePush(mem.energyOut, this.state.device.power.loadW);
+    const t = new Date().toLocaleTimeString();
+
+    this.memory.today.light.push({
+      t,
+      v: this.state.world.environment.light
+    });
+
+    this.memory.today.temperature.push({
+      t,
+      v: this.state.device.temperature
+    });
   }
 
   think() {
-    const decision = decide(this.state);
+    const decision = this.brain.decide(this.state);
+
     this.state.device.fan = decision.fan;
-    this.state.message = decision.message;
-    this.state.details = decision.details;
+    this.state.brain = decision.explanation;
+  }
+
+  consumeEnergy() {
+    const FAN_W = this.state.device.fan ? 1.0 : 0;
+    const BASE_W = 0.2;
+
+    this.state.device.power.loadW = BASE_W + FAN_W;
+
+    const delta =
+      (this.state.device.power.solarInW -
+        this.state.device.power.loadW) /
+      3600;
+
+    this.state.device.battery.soc = Math.min(
+      1,
+      Math.max(0, this.state.device.battery.soc + delta)
+    );
+  }
+
+  getState() {
+    return {
+      ...this.state,
+      memory: this.memory
+    };
   }
 }
