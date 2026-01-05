@@ -1,33 +1,34 @@
+// device.js
+
 export function deviceTick(state) {
-  const now = Date.now();
+  /* === DEFENZIVNÍ INIT === */
+  state.device ??= {};
+  state.device.power ??= {};
+  state.device.battery ??= {};
 
-  state.device.lastMeasure ??= 0;
+  const isDay = state.time?.isDay ?? true;
 
-  // měření jen dle intervalu
-  if (now - state.device.lastMeasure < state.device.measureInterval * 1000) {
-    return;
-  }
-
-  state.device.lastMeasure = now;
-
-  const solar = state.world.light / 1000;
-  let load = 0.18;
-
-  if (state.device.mode === "eco") load *= 0.6;
-  if (state.device.mode === "sleep") load *= 0.3;
-
-  const balance = solar - load;
-
-  state.device.light = Math.round(state.world.light);
-  state.device.temperature =
-    Number(state.world.temperature.toFixed(2));
+  /* === SIMULACE SOLARU === */
+  const solar = isDay ? Math.random() * 2.5 : 0;
+  const load = 0.18;
 
   state.device.power.solarInW = Number(solar.toFixed(3));
   state.device.power.loadW = Number(load.toFixed(3));
-  state.device.power.balanceWh += balance / 3600;
 
-  state.device.battery.soc = Math.min(
-    1,
-    Math.max(0, state.device.battery.soc + balance * 0.0005)
-  );
+  const balance = solar - load;
+  state.device.power.balanceWh =
+    (state.device.power.balanceWh ?? 0) + balance / 3600;
+
+  /* === BATERIE === */
+  const voltage =
+    3.7 +
+    Math.min(Math.max(state.device.power.balanceWh, -1), 1) * 0.1;
+
+  state.device.battery.voltage = Number(voltage.toFixed(3));
+
+  /* === STAV === */
+  state.device.mode =
+    solar > load ? "NABÍJENÍ" :
+    solar === 0 ? "NOC" :
+    "VYBÍJENÍ";
 }
