@@ -1,62 +1,52 @@
 export function updateBrain(state) {
+  const now = Date.now();
+  state.brain ??= {};
+  state.brain.lastDecision ??= 0;
+
+  // mozek přemýšlí max 1× za minutu
+  if (now - state.brain.lastDecision < 60000) {
+    return {
+      message: state.message,
+      details: state.details
+    };
+  }
+
+  state.brain.lastDecision = now;
+
+  const soc = state.device.battery.soc;
+  const light = state.device.light;
   const stats = state.memory.stats;
 
-  // 🛡️ pojistka
-  stats.avgLight ??= 0;
-  stats.avgBalance ??= 0;
-  stats.trendLight ??= 0;
-
-  const light = state.device.light;
-  const soc = state.device.battery.soc;
-  const balance =
-    state.device.power.solarInW - state.device.power.loadW;
-
-  const prevAvg = stats.avgLight;
-  stats.avgLight = stats.avgLight * 0.97 + light * 0.03;
-  stats.avgBalance =
-    stats.avgBalance * 0.97 + balance * 0.03;
-  stats.trendLight = stats.avgLight - prevAvg;
-
   let mode = "normal";
-  let interval = 15;
+  let measureInterval = 60;
   let message = "Stabilní provoz";
-  const details = [];
 
-  if (stats.trendLight < -5) {
-    details.push("Podmínky se zhoršují");
-  }
-  if (stats.trendLight > 5) {
-    details.push("Podmínky se zlepšují");
-  }
-
-  if (soc < 0.2 || stats.avgBalance < -0.05) {
+  if (soc < 0.2) {
     mode = "eco";
-    interval = 30;
-    message = "Šetřím energii – nepříznivý trend";
+    measureInterval = 120;
+    message = "Nízká baterie – omezuji činnost";
   }
 
-  if (soc < 0.12) {
+  if (soc < 0.1) {
     mode = "sleep";
-    interval = 60;
+    measureInterval = 300;
     message = "Kritický stav – spánek";
   }
 
-  if (soc > 0.7 && stats.avgBalance > 0.1) {
-    interval = 5;
-    message = "Dostatek energie – intenzivní sběr";
+  if (light > 500 && soc > 0.6) {
+    measureInterval = 30;
+    message = "Dobré podmínky – zvýšený sběr";
   }
 
   state.device.mode = mode;
-  state.device.sampleInterval = interval;
+  state.device.measureInterval = measureInterval;
 
-  details.push(`Režim: ${mode}`);
-  details.push(`Interval: ${interval}s`);
-  details.push(`SOC: ${(soc * 100).toFixed(0)} %`);
-  details.push(`Trend světla: ${stats.trendLight.toFixed(1)}`);
-
-  if (state.world.event) {
-    details.push(`Událost: ${state.world.event.type}`);
-  }
-
-  return { message, details };
+  return {
+    message,
+    details: [
+      `Režim: ${mode}`,
+      `Interval měření: ${measureInterval}s`,
+      `SOC: ${(soc * 100).toFixed(0)} %`
+    ]
+  };
 }

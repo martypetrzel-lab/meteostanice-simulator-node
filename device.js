@@ -1,4 +1,15 @@
 export function deviceTick(state) {
+  const now = Date.now();
+
+  state.device.lastMeasure ??= 0;
+
+  // měření jen dle intervalu
+  if (now - state.device.lastMeasure < state.device.measureInterval * 1000) {
+    return;
+  }
+
+  state.device.lastMeasure = now;
+
   const solar = state.world.light / 1000;
   let load = 0.18;
 
@@ -7,8 +18,9 @@ export function deviceTick(state) {
 
   const balance = solar - load;
 
-  state.device.temperature = state.world.temperature;
-  state.device.light = state.world.light;
+  state.device.light = Math.round(state.world.light);
+  state.device.temperature =
+    Number(state.world.temperature.toFixed(2));
 
   state.device.power.solarInW = Number(solar.toFixed(3));
   state.device.power.loadW = Number(load.toFixed(3));
@@ -16,9 +28,6 @@ export function deviceTick(state) {
 
   state.device.battery.soc = Math.min(
     1,
-    Math.max(0, state.device.battery.soc + balance * 0.0008)
-  );
-  state.device.battery.voltage = Number(
-    (3.6 + state.device.battery.soc * 0.4).toFixed(2)
+    Math.max(0, state.device.battery.soc + balance * 0.0005)
   );
 }
