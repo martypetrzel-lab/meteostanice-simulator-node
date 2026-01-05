@@ -1,4 +1,3 @@
-// server.js
 console.log("SERVER START: booting...");
 
 import fs from "fs";
@@ -14,7 +13,6 @@ let initialState = {};
 try {
   if (fs.existsSync("./state.json")) {
     initialState = JSON.parse(fs.readFileSync("./state.json", "utf8"));
-    console.log("STATE loaded from disk");
   }
 } catch (e) {
   console.warn("⚠️ Nelze načíst state.json, startuji čistě");
@@ -23,7 +21,7 @@ try {
 /* ===== SIMULATOR ===== */
 const simulator = new Simulator(initialState);
 
-/* ===== TICK ===== */
+/* ===== TICK (1s – ale měření rozhoduje simulátor) ===== */
 setInterval(() => {
   simulator.tick();
 
@@ -39,7 +37,9 @@ app.get("/state", (req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
+console.log("SERVER READY: starting listen");
+
 app.listen(PORT, () => {
-  console.log("SERVER READY: starting listen");
+  console.log("SERVER LISTENING");
   console.log("✅ Simulator běží na portu", PORT);
 });

@@ -1,196 +1,197 @@
 // simulator.js
-// ZÁLOHA 0.2 – SAFE MIGRACE
-// odolné vůči starým datům, null hodnotám a změnám struktury
+// ZÁLOHA 0.2 – stabilní simulátor světa + energie + větrák (reálná fyzika)
 
 export default class Simulator {
   constructor(state = {}) {
+    /* ========= KONSTANTY ========= */
+    this.BASE_LOAD_W = 0.10;        // ESP32 + senzory
+    this.FAN_POWER_W = 1.0;         // 5V * 0.2A
+    this.STEPUP_EFF = 0.85;         // účinnost měniče
+    this.SOLAR_MAX_W = 2.5;         // panel (simulace)
+
+    /* ========= STAV ========= */
     this.state = state;
 
-    /* ===== TIME ===== */
-    if (!this.state.time) {
-      this.state.time = {
-        now: Date.now(),
-        lastTick: Date.now()
-      };
-    }
+    this.state.time ??= {
+      now: Date.now(),
+      lastTick: Date.now()
+    };
 
-    /* ===== WORLD ===== */
-    if (!this.state.world) {
-      this.state.world = {
-        environment: {
-          temperature: 15,
-          light: 0
-        }
-      };
-    }
+    this.state.device ??= {
+      temperature: 15,
+      humidity: 50,
+      light: 0,
+      fan: false,
+      battery: {
+        voltage: 3.9,
+        soc: 0.6
+      },
+      power: {
+        solarInW: 0,
+        loadW: 0,
+        balanceWh: 0
+      }
+    };
 
-    /* ===== DEVICE ===== */
-    if (!this.state.device) this.state.device = {};
+    this.state.memory ??= {
+      today: {
+        temperature: [],
+        light: [],
+        energyIn: [],
+        energyOut: []
+      },
+      history: {
+        days: []
+      }
+    };
 
-    if (typeof this.state.device.temperature !== "number") {
-      this.state.device.temperature =
-        this.state.world.environment.temperature ?? 15;
-    }
-
-    if (typeof this.state.device.light !== "number") {
-      this.state.device.light =
-        this.state.world.environment.light ?? 0;
-    }
-
-    if (!this.state.device.battery) {
-      this.state.device.battery = { voltage: 3.9 };
-    }
-
-    if (typeof this.state.device.fan !== "boolean") {
-      this.state.device.fan = false;
-    }
-
-    /* ===== MEMORY ===== */
-    if (!this.state.memory) this.state.memory = {};
-
-    // ❌ odstranění starého bordelu
-    delete this.state.memory.days;
-
-    if (!this.state.memory.today) {
-      this.state.memory.today = {};
-    }
-
-    if (!Array.isArray(this.state.memory.today.temperature)) {
-      this.state.memory.today.temperature = [];
-    }
-
-    if (!Array.isArray(this.state.memory.today.light)) {
-      this.state.memory.today.light = [];
-    }
-
-    if (!this.state.memory.history) {
-      this.state.memory.history = { days: [] };
-    }
-
-    if (!Array.isArray(this.state.memory.history.days)) {
-      this.state.memory.history.days = [];
-    }
-
-    /* ===== INTERNÍ PROMĚNNÉ ===== */
-    this.lastMeasureTemp = 0;
-    this.lastMeasureLight = 0;
+    /* ========= INTERNÍ ========= */
+    this.lastTempMeasure = 0;
+    this.lastLightMeasure = 0;
+    this.lastEnergyLog = 0;
 
     this.dailyMinMax = {
-      date: this.currentDateString(),
+      date: this.currentDate(),
       minTemp: null,
-      maxTemp: null,
-      minLight: null,
-      maxLight: null
+      maxTemp: null
     };
   }
 
-  /* ===== TICK ===== */
+  /* ================= TICK ================= */
   tick() {
     const now = Date.now();
-    const deltaMs = now - this.state.time.lastTick;
-
+    const deltaH = (now - this.state.time.lastTick) / 3_600_000;
     this.state.time.lastTick = now;
     this.state.time.now = now;
 
-    const hours = this.getHourFraction();
+    const hour = this.hourFraction();
 
-    this.simulateWorld(hours, deltaMs);
-    this.measureIfNeeded(hours, now);
+    this.simulateWorld(hour);
+    this.simulateEnergy(hour, deltaH);
+    this.decideFan(hour);
+    this.measureIfNeeded(now);
     this.handleDayChange();
+
+    return this.state;
   }
 
-  /* ===== WORLD ===== */
-  simulateWorld(hours, deltaMs) {
-    // světlo
-    let light = 0;
-    if (hours >= 6 && hours <= 20) {
-      const x = (hours - 6) / 14;
-      light = Math.sin(Math.PI * x) * 100000;
+  /* ================= SVĚT ================= */
+  simulateWorld(hour) {
+    /* ----- SVĚTLO ----- */
+    let sun = 0;
+    if (hour >= 6 && hour <= 20) {
+      const x = (hour - 6) / 14;
+      sun = Math.sin(Math.PI * x);
     }
-    light += (Math.random() - 0.5) * 5000;
-    light = Math.max(0, light);
 
-    this.state.world.environment.light = light;
-    this.state.device.light = light;
+    const clouds = 0.6 + Math.random() * 0.4;
+    this.state.device.light = Math.round(sun * clouds * 100000);
 
-    // teplota
-    const target = hours >= 6 && hours <= 20 ? 22 : 8;
+    /* ----- TEPLOTA ----- */
+    const target = hour >= 6 && hour <= 20 ? 22 : 8;
     const diff = target - this.state.device.temperature;
-
-    this.state.device.temperature +=
-      diff * 0.001 * (deltaMs / 1000);
-
-    this.state.device.temperature +=
-      (Math.random() - 0.5) * 0.02;
+    this.state.device.temperature += diff * 0.002;
+    this.state.device.temperature += (Math.random() - 0.5) * 0.05;
   }
 
-  /* ===== MĚŘENÍ ===== */
-  measureIfNeeded(hours, now) {
-    const isDay = hours >= 6 && hours <= 20;
+  /* ================= ENERGIE ================= */
+  simulateEnergy(hour, deltaH) {
+    const soc = this.state.device.battery.soc;
 
-    const tempInterval = isDay ? 5 * 60_000 : 20 * 60_000;
-    const lightInterval = isDay ? 5 * 60_000 : 30 * 60_000;
+    /* SOLAR */
+    const solarFactor = Math.max(0, Math.min(1, this.state.device.light / 100000));
+    const solarW = solarFactor * this.SOLAR_MAX_W;
 
-    // TEPLOTA
-    if (now - this.lastMeasureTemp >= tempInterval) {
-      this.lastMeasureTemp = now;
-
-      const t = this.state.device.temperature;
-      if (Number.isFinite(t)) {
-        this.state.memory.today.temperature.push({
-          t: new Date(now).toLocaleTimeString(),
-          v: Number(t.toFixed(2))
-        });
-        this.updateMinMax("temp", t);
-      }
+    /* LOAD */
+    let loadW = this.BASE_LOAD_W;
+    if (this.state.device.fan) {
+      loadW += this.FAN_POWER_W / this.STEPUP_EFF; // ~1.18 W
     }
 
-    // SVĚTLO
-    if (now - this.lastMeasureLight >= lightInterval) {
-      this.lastMeasureLight = now;
+    /* BALANCE */
+    const balanceW = solarW - loadW;
+    const balanceWh = balanceW * deltaH;
 
-      const l = this.state.device.light;
-      if (Number.isFinite(l)) {
-        this.state.memory.today.light.push({
-          t: new Date(now).toLocaleTimeString(),
-          v: Math.round(l)
-        });
-        this.updateMinMax("light", l);
-      }
-    }
-  }
+    /* SOC */
+    let newSoc = soc + balanceWh / 10; // 10 Wh baterie (model)
+    newSoc = Math.max(0, Math.min(1, newSoc));
 
-  /* ===== MIN / MAX ===== */
-  updateMinMax(type, value) {
-    if (type === "temp") {
-      this.dailyMinMax.minTemp =
-        this.dailyMinMax.minTemp === null
-          ? value
-          : Math.min(this.dailyMinMax.minTemp, value);
+    this.state.device.battery.soc = newSoc;
+    this.state.device.battery.voltage = 3.0 + newSoc * 1.2;
 
-      this.dailyMinMax.maxTemp =
-        this.dailyMinMax.maxTemp === null
-          ? value
-          : Math.max(this.dailyMinMax.maxTemp, value);
-    }
+    this.state.device.power = {
+      solarInW: Number(solarW.toFixed(3)),
+      loadW: Number(loadW.toFixed(3)),
+      balanceWh: Number(balanceWh.toFixed(4))
+    };
 
-    if (type === "light") {
-      this.dailyMinMax.minLight =
-        this.dailyMinMax.minLight === null
-          ? value
-          : Math.min(this.dailyMinMax.minLight, value);
+    /* LOG ENERGIE (5 min) */
+    if (Date.now() - this.lastEnergyLog > 5 * 60_000) {
+      this.lastEnergyLog = Date.now();
 
-      this.dailyMinMax.maxLight =
-        this.dailyMinMax.maxLight === null
-          ? value
-          : Math.max(this.dailyMinMax.maxLight, value);
+      this.state.memory.today.energyIn.push({
+        t: new Date().toLocaleTimeString(),
+        v: Number(solarW.toFixed(3))
+      });
+
+      this.state.memory.today.energyOut.push({
+        t: new Date().toLocaleTimeString(),
+        v: Number(loadW.toFixed(3))
+      });
     }
   }
 
-  /* ===== DENNÍ UZÁVĚRKA ===== */
+  /* ================= ROZHODOVÁNÍ ================= */
+  decideFan(hour) {
+    const t = this.state.device.temperature;
+    const soc = this.state.device.battery.soc;
+    const isDay = hour >= 6 && hour <= 20;
+
+    /* LOGIKA:
+       - chladit jen když má smysl
+       - neohrozit noc
+    */
+    if (t > 28 && soc > 0.5 && isDay) {
+      this.state.device.fan = true;
+    } else if (soc < 0.4 || !isDay || t < 24) {
+      this.state.device.fan = false;
+    }
+  }
+
+  /* ================= MĚŘENÍ ================= */
+  measureIfNeeded(now) {
+    if (now - this.lastTempMeasure > 5 * 60_000) {
+      this.lastTempMeasure = now;
+      const v = this.state.device.temperature;
+
+      this.state.memory.today.temperature.push({
+        t: new Date().toLocaleTimeString(),
+        v: Number(v.toFixed(2))
+      });
+
+      this.updateMinMax(v);
+    }
+
+    if (now - this.lastLightMeasure > 10 * 60_000) {
+      this.lastLightMeasure = now;
+
+      this.state.memory.today.light.push({
+        t: new Date().toLocaleTimeString(),
+        v: this.state.device.light
+      });
+    }
+  }
+
+  updateMinMax(v) {
+    if (this.dailyMinMax.minTemp === null || v < this.dailyMinMax.minTemp)
+      this.dailyMinMax.minTemp = v;
+    if (this.dailyMinMax.maxTemp === null || v > this.dailyMinMax.maxTemp)
+      this.dailyMinMax.maxTemp = v;
+  }
+
+  /* ================= DEN ================= */
   handleDayChange() {
-    const today = this.currentDateString();
-
+    const today = this.currentDate();
     if (this.dailyMinMax.date !== today) {
       this.state.memory.history.days.push({ ...this.dailyMinMax });
 
@@ -198,26 +199,28 @@ export default class Simulator {
         this.state.memory.history.days.shift();
       }
 
-      this.state.memory.today.temperature = [];
-      this.state.memory.today.light = [];
+      this.state.memory.today = {
+        temperature: [],
+        light: [],
+        energyIn: [],
+        energyOut: []
+      };
 
       this.dailyMinMax = {
         date: today,
         minTemp: null,
-        maxTemp: null,
-        minLight: null,
-        maxLight: null
+        maxTemp: null
       };
     }
   }
 
-  /* ===== HELPERS ===== */
-  getHourFraction() {
+  /* ================= POMOCNÉ ================= */
+  hourFraction() {
     const d = new Date(this.state.time.now);
     return d.getHours() + d.getMinutes() / 60;
   }
 
-  currentDateString() {
+  currentDate() {
     return new Date(this.state.time.now).toISOString().slice(0, 10);
   }
 
