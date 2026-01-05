@@ -13,32 +13,53 @@ export class Simulator {
   }
 
   loadState() {
+    let s;
     try {
-      return JSON.parse(fs.readFileSync(this.file, "utf-8"));
+      s = JSON.parse(fs.readFileSync(this.file, "utf-8"));
     } catch {
-      return {
-        time: { now: Date.now(), minuteOfDay: 0, isDay: true },
-        world: { temperature: 10, light: 0, cloudiness: 0, event: null },
-        device: {
-          temperature: 10,
-          light: 0,
-          battery: { voltage: 3.8, soc: 0.6 },
-          power: { solarInW: 0, loadW: 0.18, balanceWh: 0 },
-          mode: "normal",
-          sampleInterval: 15
-        },
-        memory: {
-          today: { temperature: [], energyIn: [], energyOut: [] },
-          stats: {
-            avgLight: 0,
-            avgBalance: 0,
-            trendLight: 0
-          }
-        },
-        message: "",
-        details: []
-      };
+      s = {};
     }
+
+    /* 🔒 DEFENSIVNÍ INICIALIZACE */
+    s.time ??= {};
+    s.time.now ??= Date.now();
+    s.time.minuteOfDay ??= 0;
+    s.time.isDay ??= true;
+
+    s.world ??= {};
+    s.world.temperature ??= 10;
+    s.world.light ??= 0;
+    s.world.cloudiness ??= 0;
+    s.world.event ??= null;
+
+    s.device ??= {};
+    s.device.temperature ??= 10;
+    s.device.light ??= 0;
+    s.device.mode ??= "normal";
+    s.device.sampleInterval ??= 15;
+
+    s.device.battery ??= {};
+    s.device.battery.soc ??= 0.6;
+    s.device.battery.voltage ??= 3.8;
+
+    s.device.power ??= {};
+    s.device.power.solarInW ??= 0;
+    s.device.power.loadW ??= 0.18;
+    s.device.power.balanceWh ??= 0;
+
+    s.memory ??= {};
+    s.memory.today ??= { temperature: [], energyIn: [], energyOut: [] };
+
+    s.memory.stats ??= {
+      avgLight: 0,
+      avgBalance: 0,
+      trendLight: 0
+    };
+
+    s.message ??= "";
+    s.details ??= [];
+
+    return s;
   }
 
   saveState() {
@@ -56,20 +77,18 @@ export class Simulator {
     worldTick(this.state);
     deviceTick(this.state);
 
-    // 🧠 mozek rozhodne jak často měřit
     const brain = updateBrain(this.state);
     this.state.message = brain.message;
     this.state.details = brain.details;
 
-    // ⏱️ adaptivní sampling
     if (now - this.lastSample > this.state.device.sampleInterval * 1000) {
       memoryTick(this.state, d.toLocaleTimeString());
       this.lastSample = now;
     }
 
-    if (Date.now() - this.lastSave > 20000) {
+    if (now - this.lastSave > 20000) {
       this.saveState();
-      this.lastSave = Date.now();
+      this.lastSave = now;
     }
   }
 

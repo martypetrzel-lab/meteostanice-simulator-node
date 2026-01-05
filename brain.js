@@ -1,17 +1,20 @@
 export function updateBrain(state) {
-  const soc = state.device.battery.soc;
+  const stats = state.memory.stats;
+
+  // 🛡️ pojistka
+  stats.avgLight ??= 0;
+  stats.avgBalance ??= 0;
+  stats.trendLight ??= 0;
+
   const light = state.device.light;
+  const soc = state.device.battery.soc;
   const balance =
     state.device.power.solarInW - state.device.power.loadW;
 
-  const stats = state.memory.stats;
-
-  // 📊 učení z historie
   const prevAvg = stats.avgLight;
   stats.avgLight = stats.avgLight * 0.97 + light * 0.03;
   stats.avgBalance =
     stats.avgBalance * 0.97 + balance * 0.03;
-
   stats.trendLight = stats.avgLight - prevAvg;
 
   let mode = "normal";
@@ -19,37 +22,35 @@ export function updateBrain(state) {
   let message = "Stabilní provoz";
   const details = [];
 
-  // 🔮 predikce
   if (stats.trendLight < -5) {
-    details.push("Světelné podmínky se zhoršují");
+    details.push("Podmínky se zhoršují");
   }
   if (stats.trendLight > 5) {
     details.push("Podmínky se zlepšují");
   }
 
-  // ⚡ rozhodování
   if (soc < 0.2 || stats.avgBalance < -0.05) {
     mode = "eco";
     interval = 30;
-    message = "Šetřím energii – očekávám nedostatek";
+    message = "Šetřím energii – nepříznivý trend";
   }
 
   if (soc < 0.12) {
     mode = "sleep";
     interval = 60;
-    message = "Kritický stav – minimální aktivita";
+    message = "Kritický stav – spánek";
   }
 
   if (soc > 0.7 && stats.avgBalance > 0.1) {
     interval = 5;
-    message = "Dostatek energie – zvýšený sběr dat";
+    message = "Dostatek energie – intenzivní sběr";
   }
 
   state.device.mode = mode;
   state.device.sampleInterval = interval;
 
   details.push(`Režim: ${mode}`);
-  details.push(`Interval měření: ${interval}s`);
+  details.push(`Interval: ${interval}s`);
   details.push(`SOC: ${(soc * 100).toFixed(0)} %`);
   details.push(`Trend světla: ${stats.trendLight.toFixed(1)}`);
 
