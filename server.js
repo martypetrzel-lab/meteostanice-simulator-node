@@ -1,18 +1,24 @@
 // server.js
 import express from "express";
-import cors from "cors";
 import { Simulator } from "./simulator.js";
 
 const app = express();
 const simulator = new Simulator();
 
-app.use(cors());
+/* ===== CORS RUČNĚ (BEZ BALÍKU) ===== */
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  next();
+});
 
+/* ===== API ===== */
 app.get("/state", (req, res) => {
   res.json(simulator.getState());
 });
 
-// ⏱️ TADY JE TEN KRITICKÝ ŘÁDEK
+/* ===== SIMULACE 1s = 1s ===== */
 setInterval(() => {
   simulator.tick();
 }, 1000);
