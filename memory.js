@@ -15,7 +15,7 @@ export function memoryTick(state, label) {
   });
 
   for (const k of ["temperature", "energyIn", "energyOut"]) {
-    if (state.memory.today[k].length > 600) {
+    if (state.memory.today[k].length > 500) {
       state.memory.today[k].shift();
     }
   }

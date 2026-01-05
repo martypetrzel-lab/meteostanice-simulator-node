@@ -1,37 +1,57 @@
 export function updateBrain(state) {
   const soc = state.device.battery.soc;
   const light = state.device.light;
-  const mem = state.memory.stats;
+  const balance =
+    state.device.power.solarInW - state.device.power.loadW;
 
-  // klouzavé průměry (učení)
-  mem.avgLight = mem.avgLight * 0.98 + light * 0.02;
-  mem.avgBalance =
-    mem.avgBalance * 0.98 +
-    (state.device.power.solarInW - state.device.power.loadW) * 0.02;
+  const stats = state.memory.stats;
+
+  // 📊 učení z historie
+  const prevAvg = stats.avgLight;
+  stats.avgLight = stats.avgLight * 0.97 + light * 0.03;
+  stats.avgBalance =
+    stats.avgBalance * 0.97 + balance * 0.03;
+
+  stats.trendLight = stats.avgLight - prevAvg;
 
   let mode = "normal";
-  let message = "Běžný provoz";
+  let interval = 15;
+  let message = "Stabilní provoz";
   const details = [];
 
-  if (soc < 0.25 || mem.avgBalance < -0.05) {
+  // 🔮 predikce
+  if (stats.trendLight < -5) {
+    details.push("Světelné podmínky se zhoršují");
+  }
+  if (stats.trendLight > 5) {
+    details.push("Podmínky se zlepšují");
+  }
+
+  // ⚡ rozhodování
+  if (soc < 0.2 || stats.avgBalance < -0.05) {
     mode = "eco";
-    message = "Šetřím energii – nepříznivé podmínky";
+    interval = 30;
+    message = "Šetřím energii – očekávám nedostatek";
   }
 
-  if (soc < 0.15) {
+  if (soc < 0.12) {
     mode = "sleep";
-    message = "Kritický stav – spánkový režim";
+    interval = 60;
+    message = "Kritický stav – minimální aktivita";
   }
 
-  if (light < 50 && mem.avgLight < 100) {
-    details.push("Dlouhodobě málo světla");
+  if (soc > 0.7 && stats.avgBalance > 0.1) {
+    interval = 5;
+    message = "Dostatek energie – zvýšený sběr dat";
   }
 
   state.device.mode = mode;
+  state.device.sampleInterval = interval;
 
   details.push(`Režim: ${mode}`);
+  details.push(`Interval měření: ${interval}s`);
   details.push(`SOC: ${(soc * 100).toFixed(0)} %`);
-  details.push(`Prům. světlo: ${mem.avgLight.toFixed(0)} lx`);
+  details.push(`Trend světla: ${stats.trendLight.toFixed(1)}`);
 
   if (state.world.event) {
     details.push(`Událost: ${state.world.event.type}`);

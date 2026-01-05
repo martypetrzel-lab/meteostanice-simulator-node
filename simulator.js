@@ -9,6 +9,7 @@ export class Simulator {
     this.file = "./state.json";
     this.state = this.loadState();
     this.lastSave = Date.now();
+    this.lastSample = 0;
   }
 
   loadState() {
@@ -16,24 +17,23 @@ export class Simulator {
       return JSON.parse(fs.readFileSync(this.file, "utf-8"));
     } catch {
       return {
-        time: { now: Date.now(), isDay: true, minuteOfDay: 0 },
-        world: {
-          temperature: 10,
-          light: 0,
-          cloudiness: 0,
-          event: null
-        },
+        time: { now: Date.now(), minuteOfDay: 0, isDay: true },
+        world: { temperature: 10, light: 0, cloudiness: 0, event: null },
         device: {
           temperature: 10,
-          humidity: 60,
           light: 0,
           battery: { voltage: 3.8, soc: 0.6 },
           power: { solarInW: 0, loadW: 0.18, balanceWh: 0 },
-          mode: "normal"
+          mode: "normal",
+          sampleInterval: 15
         },
         memory: {
           today: { temperature: [], energyIn: [], energyOut: [] },
-          stats: { avgLight: 0, avgBalance: 0 }
+          stats: {
+            avgLight: 0,
+            avgBalance: 0,
+            trendLight: 0
+          }
         },
         message: "",
         details: []
@@ -56,14 +56,18 @@ export class Simulator {
     worldTick(this.state);
     deviceTick(this.state);
 
-    const label = d.toLocaleTimeString();
-    memoryTick(this.state, label);
-
+    // 🧠 mozek rozhodne jak často měřit
     const brain = updateBrain(this.state);
     this.state.message = brain.message;
     this.state.details = brain.details;
 
-    if (Date.now() - this.lastSave > 15000) {
+    // ⏱️ adaptivní sampling
+    if (now - this.lastSample > this.state.device.sampleInterval * 1000) {
+      memoryTick(this.state, d.toLocaleTimeString());
+      this.lastSample = now;
+    }
+
+    if (Date.now() - this.lastSave > 20000) {
       this.saveState();
       this.lastSave = Date.now();
     }
