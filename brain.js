@@ -1,28 +1,23 @@
 // brain.js
-export function decide(state) {
-  const decisions = {
-    fan: false,
-    reason: []
-  };
+export function decide(state, memory) {
+  const decisions = [];
 
-  const temp = state.device.temperature;
-  const soc = state.device.battery.soc;
-  const solar = state.device.power.solarInW;
-
-  // 🌡️ chlazení – ale s rozumem
-  if (temp !== null && temp > 28) {
-    if (soc > 0.35 || solar > 0.3) {
-      decisions.fan = true;
-      decisions.reason.push("Teplota vysoká, energie OK");
+  // Teplotní logika
+  if (state.device.temperature !== null) {
+    if (state.device.temperature > 30 && state.device.battery.soc > 0.4) {
+      decisions.push({ type: "fan", value: true, reason: "Vysoká teplota" });
     } else {
-      decisions.reason.push("Teplo, ale šetřím energii");
+      decisions.push({ type: "fan", value: false, reason: "Teplota OK" });
     }
   }
 
-  // 🔋 ochrana baterie
-  if (soc < 0.25) {
-    decisions.fan = false;
-    decisions.reason.push("Nízké SOC – ochrana baterie");
+  // Energetická logika
+  if (state.device.battery.soc < 0.2) {
+    decisions.push({
+      type: "mode",
+      value: "survival",
+      reason: "Nízké SOC – šetření"
+    });
   }
 
   return decisions;

@@ -3,16 +3,14 @@ import express from "express";
 import { Simulator } from "./simulator.js";
 
 const app = express();
-const simulator = new Simulator();
+const sim = new Simulator();
 
-setInterval(() => {
-  simulator.tick();
-}, 1000);
+setInterval(() => sim.tick(), 1000);
 
 app.get("/api/state", (req, res) => {
-  res.json(simulator.getState());
+  res.json(sim.getState());
 });
 
-app.listen(8080, () => {
-  console.log("✅ Simulator běží na portu 8080");
-});
+app.listen(8080, () =>
+  console.log("✅ Simulator běží na portu 8080")
+);

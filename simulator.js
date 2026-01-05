@@ -1,109 +1,126 @@
 // simulator.js
 import { decide } from "./brain.js";
-import { createMemoryRoot } from "./memorySchema.js";
+import { createMemoryRoot, createDaySummary } from "./memoryschema.js";
+import { createWorld } from "./world.js";
 
 export class Simulator {
   constructor() {
+    this.world = createWorld();
     this.state = {
       time: {
         now: Date.now(),
-        lastTick: Date.now(),
-        isDay: true
-      },
-      world: {
-        environment: {
-          temperature: 15,
-          light: 400
-        }
+        lastDay: new Date().toDateString()
       },
       device: {
         temperature: 15,
         humidity: 50,
-        light: 800,
+        light: 0,
+        fan: false,
         battery: {
           voltage: 3.8,
           soc: 0.6
         },
         power: {
-          solarInW: 0.3,
-          loadW: 0.18,
+          solarInW: 0,
+          loadW: 0,
           balanceWh: 0
-        },
-        fan: false
+        }
       },
       memory: createMemoryRoot(),
-      message: "",
-      details: []
+      message: ""
     };
   }
 
   tick() {
+    this.world.tick();
     this.state.time.now = Date.now();
-    this.measure();
+
+    this.simulateSensors();
+    this.storeToday();
+    this.checkDayChange();
     this.think();
   }
 
-  measure() {
-    const now = new Date();
+  simulateSensors() {
+    const env = this.world.environment;
+    const dev = this.state.device;
 
-    // simulace světa
-    this.state.device.light =
-      this.state.world.environment.light +
-      Math.random() * 50 - 25;
+    dev.temperature = env.temperature;
+    dev.light = env.light;
 
-    this.state.device.temperature +=
-      (this.state.device.fan ? -0.05 : 0.02);
+    dev.power.solarInW = env.light > 300 ? env.light / 2000 : 0;
+    dev.power.loadW = dev.fan ? 1.0 : 0.2;
 
-    // ENERGIE
-    this.state.device.power.solarInW =
-      this.state.world.environment.light > 300
-        ? 0.3 + Math.random() * 0.2
-        : 0.05;
+    dev.power.balanceWh =
+      (dev.power.solarInW - dev.power.loadW) / 3600;
 
-    this.state.device.power.loadW =
-      this.state.device.fan ? 0.18 + 1.0 : 0.18;
-
-    const balance =
-      this.state.device.power.solarInW -
-      this.state.device.power.loadW;
-
-    this.state.device.power.balanceWh = balance / 3600;
-    this.state.device.battery.soc = Math.max(
-      0,
-      Math.min(1, this.state.device.battery.soc + balance * 0.001)
+    dev.battery.soc = Math.min(
+      1,
+      Math.max(0, dev.battery.soc + dev.power.balanceWh)
     );
+  }
 
-    // ✅ SAFE zápis – struktura JE GARANTOVANÁ
-    this.state.memory.today.light.push({
-      t: now.toLocaleTimeString(),
-      v: Math.round(this.state.device.light)
-    });
+  storeToday() {
+    const t = new Date(this.state.time.now).toLocaleTimeString();
+    const m = this.state.memory.today;
 
-    this.state.memory.today.temperature.push({
-      t: now.toLocaleTimeString(),
-      v: Number(this.state.device.temperature.toFixed(2))
-    });
+    m.temperature.push({ t, v: this.state.device.temperature });
+    m.light.push({ t, v: this.state.device.light });
+    m.energyIn.push({ t, v: this.state.device.power.solarInW });
+    m.energyOut.push({ t, v: this.state.device.power.loadW });
+  }
 
-    this.state.memory.today.energyIn.push({
-      t: now.toLocaleTimeString(),
-      v: Number(this.state.device.power.solarInW.toFixed(2))
-    });
+  checkDayChange() {
+    const today = new Date().toDateString();
+    if (today !== this.state.time.lastDay) {
+      this.finalizeDay();
+      this.state.time.lastDay = today;
+    }
+  }
 
-    this.state.memory.today.energyOut.push({
-      t: now.toLocaleTimeString(),
-      v: Number(this.state.device.power.loadW.toFixed(2))
-    });
+  finalizeDay() {
+    const m = this.state.memory.today;
+
+    const summary = createDaySummary(this.state.time.lastDay);
+
+    const avg = arr =>
+      arr.reduce((s, x) => s + x.v, 0) / arr.length;
+
+    summary.temperature.min = Math.min(...m.temperature.map(x => x.v));
+    summary.temperature.max = Math.max(...m.temperature.map(x => x.v));
+    summary.temperature.avg = avg(m.temperature);
+
+    summary.light.min = Math.min(...m.light.map(x => x.v));
+    summary.light.max = Math.max(...m.light.map(x => x.v));
+    summary.light.avg = avg(m.light);
+
+    summary.energy.in = m.energyIn.reduce((s, x) => s + x.v, 0);
+    summary.energy.out = m.energyOut.reduce((s, x) => s + x.v, 0);
+    summary.energy.balance = summary.energy.in - summary.energy.out;
+
+    this.state.memory.days.push(summary);
+    if (this.state.memory.days.length > 7) {
+      this.state.memory.history.push(this.state.memory.days.shift());
+    }
+
+    this.state.memory.today = {
+      temperature: [],
+      humidity: [],
+      light: [],
+      energyIn: [],
+      energyOut: []
+    };
   }
 
   think() {
-    const decision = decide(this.state);
+    const decisions = decide(this.state, this.state.memory);
+    decisions.forEach(d => {
+      if (d.type === "fan") this.state.device.fan = d.value;
+    });
 
-    this.state.device.fan = decision.fan;
-    this.state.message = decision.reason.join(" | ");
-    this.state.details = [
-      `SOC: ${(this.state.device.battery.soc * 100).toFixed(0)} %`,
-      `Fan: ${this.state.device.fan ? "ON" : "OFF"}`
-    ];
+    this.state.message = decisions
+      .map(d => `${d.type}: ${d.reason}`)
+      .join(" | ");
   }
 
   getState() {
