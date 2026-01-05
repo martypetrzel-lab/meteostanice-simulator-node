@@ -8,7 +8,8 @@ export function createMemoryRoot() {
       energyIn: [],
       energyOut: [],
       decisions: [],
-      penalties: []
+      penalties: [],
+      predictions: []
     },
     history: {
       days: []

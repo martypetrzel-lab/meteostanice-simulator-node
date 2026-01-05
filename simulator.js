@@ -51,7 +51,8 @@ export class Simulator {
 
   simulateEnvironment() {
     const env = this.world.environment;
-    this.state.device.temperature += (env.temperature - this.state.device.temperature) * 0.05;
+    this.state.device.temperature +=
+      (env.temperature - this.state.device.temperature) * 0.05;
     this.state.device.light = env.light;
   }
 
