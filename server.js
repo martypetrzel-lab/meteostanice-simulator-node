@@ -3,14 +3,25 @@ import express from "express";
 import { Simulator } from "./simulator.js";
 
 const app = express();
-const sim = new Simulator();
+const PORT = 8080;
 
-setInterval(() => sim.tick(), 1000);
+const simulator = new Simulator();
 
-app.get("/api/state", (req, res) => {
-  res.json(sim.getState());
+// tick simulátoru každou sekundu
+setInterval(() => {
+  simulator.tick();
+}, 1000);
+
+// 🔹 STATE ENDPOINT (TOHLE CHYBĚLO)
+app.get("/state", (req, res) => {
+  res.json(simulator.state);
 });
 
-app.listen(8080, () =>
-  console.log("✅ Simulator běží na portu 8080")
-);
+// 🔹 HEALTHCHECK (užitečné)
+app.get("/", (req, res) => {
+  res.send("Meteostanice simulator running");
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Simulator běží na portu ${PORT}`);
+});
