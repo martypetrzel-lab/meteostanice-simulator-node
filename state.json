@@ -1,0 +1,83 @@
+{
+  "time": {
+    "now": 1767624208327,
+    "isDay": true
+  },
+  "world": {
+    "environment": {
+      "temperature": 15.00102114763939,
+      "light": 401
+    },
+    "time": {
+      "now": 1767624208327,
+      "isDay": true
+    }
+  },
+  "device": {
+    "temperature": 15.00102114763939,
+    "humidity": 50,
+    "light": 401,
+    "battery": {
+      "voltage": 3.84,
+      "soc": 0.60043375
+    },
+    "power": {
+      "solarInW": 0.334,
+      "loadW": 0.18,
+      "balanceWh": 0.0012048611111111112
+    },
+    "fan": false
+  },
+  "memory": {
+    "today": {
+      "temperature": [
+        {
+          "t": "15:43:18",
+          "v": 15
+        },
+        {
+          "t": "15:43:23",
+          "v": 14.99
+        },
+        {
+          "t": "15:43:28",
+          "v": 15
+        }
+      ],
+      "energyIn": [
+        {
+          "t": "15:43:18",
+          "v": 0.523
+        },
+        {
+          "t": "15:43:23",
+          "v": 0.55
+        },
+        {
+          "t": "15:43:28",
+          "v": 0.334
+        }
+      ],
+      "energyOut": [
+        {
+          "t": "15:43:18",
+          "v": 0.18
+        },
+        {
+          "t": "15:43:23",
+          "v": 0.18
+        },
+        {
+          "t": "15:43:28",
+          "v": 0.18
+        }
+      ]
+    },
+    "days": []
+  },
+  "message": "Podmínky stabilní, sbírám data",
+  "details": [
+    "SOC: 60 %",
+    "Světlo: 401 lx"
+  ]
+}
