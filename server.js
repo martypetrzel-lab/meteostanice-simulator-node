@@ -9,7 +9,6 @@ app.use(cors());
 
 const simulator = new Simulator();
 
-// 1s = 1s simulace
 setInterval(() => {
   simulator.tick();
 }, 1000);
@@ -19,5 +18,5 @@ app.get("/state", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log("Server běží na portu", PORT);
+  console.log("✅ Meteostanice běží na portu", PORT);
 });
