@@ -6,10 +6,11 @@ import { memoryTick, initMemory } from "./memory.js";
 import { updateBrain } from "./brain.js";
 
 export class Simulator {
-  constructor(state) {
+  constructor(state = {}) {
+    /* ================== STATE ================== */
     this.state = state;
 
-    // inicializace času
+    /* ================== TIME ================== */
     if (!this.state.time) {
       this.state.time = {
         now: Date.now(),
@@ -17,20 +18,20 @@ export class Simulator {
       };
     }
 
-    // inicializace světa
+    /* ================== WORLD ================== */
     if (!this.state.world) {
       this.state.world = {};
     }
 
-    // inicializace zařízení
+    /* ================== DEVICE ================== */
     if (!this.state.device) {
       this.state.device = {};
     }
 
-    // inicializace paměti
+    /* ================== MEMORY ================== */
     initMemory(this.state);
 
-    // první výpočet dne/noci
+    /* ================== INIT DAY/NIGHT ================== */
     this.updateDayState();
   }
 
@@ -41,23 +42,23 @@ export class Simulator {
   }
 
   tick() {
-    /* ================== ČAS ================== */
+    /* ================== TIME ================== */
     this.state.time.now = Date.now();
     this.updateDayState();
 
-    /* ================== SVĚT ================== */
+    /* ================== WORLD ================== */
     worldTick(this.state);
 
-    /* ================== ZAŘÍZENÍ ================== */
+    /* ================== DEVICE ================== */
     deviceTick(this.state);
 
-    /* ================== PAMĚŤ ================== */
+    /* ================== MEMORY ================== */
     memoryTick(this.state);
 
-    /* ================== MOZEK ================== */
+    /* ================== BRAIN ================== */
     updateBrain(this.state);
 
-    /* ================== HLÁŠKY ================== */
+    /* ================== MESSAGE FALLBACK ================== */
     if (!this.state.message) {
       this.state.message = "Systém běží";
     }
