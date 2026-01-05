@@ -1,12 +1,12 @@
 // simulator.js
-// ZÁLOHA 0.2.1 – SAFE STATE + REÁLNÝ DEN
-console.log("🧠 SIMULATOR VERSION: ZALOHA 0.2.1 – SAFE STATE");
+// ZÁLOHA 0.2 – SAFE MIGRACE
+// odolné vůči starým datům, null hodnotám a změnám struktury
 
 export default class Simulator {
   constructor(state = {}) {
-    // ===== TIME =====
     this.state = state;
 
+    /* ===== TIME ===== */
     if (!this.state.time) {
       this.state.time = {
         now: Date.now(),
@@ -14,45 +14,77 @@ export default class Simulator {
       };
     }
 
-    // ===== DEVICE =====
-    if (!this.state.device) {
-      this.state.device = {};
+    /* ===== WORLD ===== */
+    if (!this.state.world) {
+      this.state.world = {
+        environment: {
+          temperature: 15,
+          light: 0
+        }
+      };
     }
 
-    this.state.device.temperature ??= 10;
-    this.state.device.light ??= 0;
-    this.state.device.battery ??= { voltage: 3.9 };
-    this.state.device.fan ??= false;
+    /* ===== DEVICE ===== */
+    if (!this.state.device) this.state.device = {};
 
-    // ===== MEMORY (SAFE MIGRATION) =====
+    if (typeof this.state.device.temperature !== "number") {
+      this.state.device.temperature =
+        this.state.world.environment.temperature ?? 15;
+    }
+
+    if (typeof this.state.device.light !== "number") {
+      this.state.device.light =
+        this.state.world.environment.light ?? 0;
+    }
+
+    if (!this.state.device.battery) {
+      this.state.device.battery = { voltage: 3.9 };
+    }
+
+    if (typeof this.state.device.fan !== "boolean") {
+      this.state.device.fan = false;
+    }
+
+    /* ===== MEMORY ===== */
     if (!this.state.memory) this.state.memory = {};
-    if (!this.state.memory.today) this.state.memory.today = {};
-    if (!this.state.memory.history) this.state.memory.history = { days: [] };
 
-    // ⬇⬇⬇ TADY BYL PROBLÉM ⬇⬇⬇
-    if (!Array.isArray(this.state.memory.today.temperature))
+    // ❌ odstranění starého bordelu
+    delete this.state.memory.days;
+
+    if (!this.state.memory.today) {
+      this.state.memory.today = {};
+    }
+
+    if (!Array.isArray(this.state.memory.today.temperature)) {
       this.state.memory.today.temperature = [];
+    }
 
-    if (!Array.isArray(this.state.memory.today.light))
+    if (!Array.isArray(this.state.memory.today.light)) {
       this.state.memory.today.light = [];
+    }
 
-    if (!Array.isArray(this.state.memory.history.days))
+    if (!this.state.memory.history) {
+      this.state.memory.history = { days: [] };
+    }
+
+    if (!Array.isArray(this.state.memory.history.days)) {
       this.state.memory.history.days = [];
+    }
 
-    // ===== INTERNÍ PROMĚNNÉ =====
+    /* ===== INTERNÍ PROMĚNNÉ ===== */
     this.lastMeasureTemp = 0;
     this.lastMeasureLight = 0;
 
     this.dailyMinMax = {
+      date: this.currentDateString(),
       minTemp: null,
       maxTemp: null,
       minLight: null,
-      maxLight: null,
-      date: this.currentDateString()
+      maxLight: null
     };
   }
 
-  // ===== TICK =====
+  /* ===== TICK ===== */
   tick() {
     const now = Date.now();
     const deltaMs = now - this.state.time.lastTick;
@@ -67,100 +99,119 @@ export default class Simulator {
     this.handleDayChange();
   }
 
-  // ===== SVĚT =====
+  /* ===== WORLD ===== */
   simulateWorld(hours, deltaMs) {
     // světlo
-    let lightBase = 0;
+    let light = 0;
     if (hours >= 6 && hours <= 20) {
       const x = (hours - 6) / 14;
-      lightBase = Math.sin(Math.PI * x) * 100000;
+      light = Math.sin(Math.PI * x) * 100000;
     }
+    light += (Math.random() - 0.5) * 5000;
+    light = Math.max(0, light);
 
-    const cloudNoise = (Math.random() - 0.5) * 5000;
-    this.state.device.light = Math.max(0, lightBase + cloudNoise);
+    this.state.world.environment.light = light;
+    this.state.device.light = light;
 
     // teplota
     const target = hours >= 6 && hours <= 20 ? 22 : 8;
     const diff = target - this.state.device.temperature;
 
-    this.state.device.temperature += diff * 0.001 * (deltaMs / 1000);
-    this.state.device.temperature += (Math.random() - 0.5) * 0.02;
+    this.state.device.temperature +=
+      diff * 0.001 * (deltaMs / 1000);
+
+    this.state.device.temperature +=
+      (Math.random() - 0.5) * 0.02;
   }
 
-  // ===== MĚŘENÍ =====
+  /* ===== MĚŘENÍ ===== */
   measureIfNeeded(hours, now) {
     const isDay = hours >= 6 && hours <= 20;
 
     const tempInterval = isDay ? 5 * 60_000 : 20 * 60_000;
     const lightInterval = isDay ? 5 * 60_000 : 30 * 60_000;
 
+    // TEPLOTA
     if (now - this.lastMeasureTemp >= tempInterval) {
       this.lastMeasureTemp = now;
+
       const t = this.state.device.temperature;
-
-      this.state.memory.today.temperature.push({
-        t: new Date(now).toLocaleTimeString(),
-        v: Number(t.toFixed(2))
-      });
-
-      this.updateDailyMinMax("temp", t);
+      if (Number.isFinite(t)) {
+        this.state.memory.today.temperature.push({
+          t: new Date(now).toLocaleTimeString(),
+          v: Number(t.toFixed(2))
+        });
+        this.updateMinMax("temp", t);
+      }
     }
 
+    // SVĚTLO
     if (now - this.lastMeasureLight >= lightInterval) {
       this.lastMeasureLight = now;
+
       const l = this.state.device.light;
-
-      this.state.memory.today.light.push({
-        t: new Date(now).toLocaleTimeString(),
-        v: Math.round(l)
-      });
-
-      this.updateDailyMinMax("light", l);
+      if (Number.isFinite(l)) {
+        this.state.memory.today.light.push({
+          t: new Date(now).toLocaleTimeString(),
+          v: Math.round(l)
+        });
+        this.updateMinMax("light", l);
+      }
     }
   }
 
-  // ===== MIN / MAX =====
-  updateDailyMinMax(type, value) {
+  /* ===== MIN / MAX ===== */
+  updateMinMax(type, value) {
     if (type === "temp") {
       this.dailyMinMax.minTemp =
-        this.dailyMinMax.minTemp === null ? value : Math.min(this.dailyMinMax.minTemp, value);
+        this.dailyMinMax.minTemp === null
+          ? value
+          : Math.min(this.dailyMinMax.minTemp, value);
+
       this.dailyMinMax.maxTemp =
-        this.dailyMinMax.maxTemp === null ? value : Math.max(this.dailyMinMax.maxTemp, value);
+        this.dailyMinMax.maxTemp === null
+          ? value
+          : Math.max(this.dailyMinMax.maxTemp, value);
     }
 
     if (type === "light") {
       this.dailyMinMax.minLight =
-        this.dailyMinMax.minLight === null ? value : Math.min(this.dailyMinMax.minLight, value);
+        this.dailyMinMax.minLight === null
+          ? value
+          : Math.min(this.dailyMinMax.minLight, value);
+
       this.dailyMinMax.maxLight =
-        this.dailyMinMax.maxLight === null ? value : Math.max(this.dailyMinMax.maxLight, value);
+        this.dailyMinMax.maxLight === null
+          ? value
+          : Math.max(this.dailyMinMax.maxLight, value);
     }
   }
 
-  // ===== DEN =====
+  /* ===== DENNÍ UZÁVĚRKA ===== */
   handleDayChange() {
     const today = this.currentDateString();
 
     if (this.dailyMinMax.date !== today) {
       this.state.memory.history.days.push({ ...this.dailyMinMax });
 
+      if (this.state.memory.history.days.length > 7) {
+        this.state.memory.history.days.shift();
+      }
+
       this.state.memory.today.temperature = [];
       this.state.memory.today.light = [];
 
       this.dailyMinMax = {
+        date: today,
         minTemp: null,
         maxTemp: null,
         minLight: null,
-        maxLight: null,
-        date: today
+        maxLight: null
       };
-
-      if (this.state.memory.history.days.length > 7) {
-        this.state.memory.history.days.shift();
-      }
     }
   }
 
-  // ===== HELPERS =====
+  /* ===== HELPERS ===== */
   getHourFraction() {
     const d = new Date(this.state.time.now);
     return d.getHours() + d.getMinutes() / 60;
