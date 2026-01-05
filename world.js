@@ -1,94 +1,43 @@
 // world.js
+// Simulace reálného světa (den / noc, světlo, teplota)
+
 export function worldTick(state) {
   const now = new Date(state.time.now);
 
-  /* ================== ČAS ================== */
-  const minutes =
-    now.getHours() * 60 +
-    now.getMinutes() +
-    now.getSeconds() / 60;
+  const hour = now.getHours() + now.getMinutes() / 60;
 
-  state.world.minuteOfDay = minutes;
+  /* ===================== DEN / NOC ===================== */
+  const DAY_START = 6;   // 06:00
+  const DAY_END = 20;    // 20:00
+  const DAY_LENGTH = DAY_END - DAY_START;
 
-  /* ================== SLUNCE ================== */
-  // Slunce vychází cca v 6:00 (360), zapadá v 18:00 (1080)
-  let sun = 0;
-  if (minutes >= 360 && minutes <= 1080) {
-    sun = Math.sin(Math.PI * (minutes - 360) / 720);
+  let daylightFactor = 0;
+
+  if (hour >= DAY_START && hour <= DAY_END) {
+    const x = (hour - DAY_START) / DAY_LENGTH;
+    // plynulý náběh + plynulý pokles
+    daylightFactor = Math.sin(Math.PI * x);
+  } else {
+    daylightFactor = 0;
   }
 
-  /* ================== POČASÍ (PAMĚŤ) ================== */
-  if (state.world.cloudiness === undefined) {
-    state.world.cloudiness = Math.random() * 0.3;
-  }
+  /* ===================== SVĚTLO ===================== */
+  const MAX_LUX = 1000; // venkovní rozumné maximum
+  state.world.light = Math.round(MAX_LUX * daylightFactor);
 
-  // pomalá změna oblačnosti
-  state.world.cloudiness += (Math.random() - 0.5) * 0.002;
-  state.world.cloudiness = Math.max(0, Math.min(0.9, state.world.cloudiness));
-
-  /* ================== EVENTY ================== */
-  if (!state.world.event && Math.random() < 0.0001) {
-    state.world.event = {
-      type: ["clouds", "cold", "heat"][Math.floor(Math.random() * 3)],
-      strength: 0.3 + Math.random() * 0.7,
-      ttl: 1800 + Math.random() * 1800 // 30–60 min
-    };
-  }
-
-  let eventLight = 1;
-  let eventTemp = 0;
-
-  if (state.world.event) {
-    state.world.event.ttl--;
-
-    if (state.world.event.type === "clouds") {
-      eventLight -= 0.6 * state.world.event.strength;
-    }
-
-    if (state.world.event.type === "cold") {
-      eventTemp -= 3 * state.world.event.strength;
-    }
-
-    if (state.world.event.type === "heat") {
-      eventTemp += 3 * state.world.event.strength;
-    }
-
-    if (state.world.event.ttl <= 0) {
-      state.world.event = null;
-    }
-  }
-
-  /* ================== SVĚTLO ================== */
-  const targetLight =
-    sun * 1000 *
-    (1 - state.world.cloudiness) *
-    eventLight;
-
-  if (state.world.light === undefined) {
-    state.world.light = targetLight;
-  }
-
-  // setrvačnost světla
-  state.world.light += (targetLight - state.world.light) * 0.05;
-
-  /* ================== TEPLOTA ================== */
-  const baseTempNight = 6;
-  const baseTempDay = 18;
+  /* ===================== TEPLOTA ===================== */
+  const NIGHT_TEMP = 10;  // °C
+  const DAY_TEMP = 18;    // °C
 
   const targetTemp =
-    baseTempNight +
-    (baseTempDay - baseTempNight) * sun +
-    eventTemp;
+    NIGHT_TEMP + (DAY_TEMP - NIGHT_TEMP) * daylightFactor;
 
-  if (state.world.temperature === undefined) {
+  // setrvačnost – svět se mění pomalu
+  if (typeof state.world.temperature !== "number") {
     state.world.temperature = targetTemp;
+  } else {
+    const INERTIA = 0.01; // čím menší, tím pomalejší změna
+    state.world.temperature +=
+      (targetTemp - state.world.temperature) * INERTIA;
   }
-
-  // teplota reaguje pomaleji než světlo
-  state.world.temperature +=
-    (targetTemp - state.world.temperature) * 0.01;
-
-  /* ================== ZAOKROUHLENÍ ================== */
-  state.world.light = Math.max(0, Number(state.world.light.toFixed(0)));
-  state.world.temperature = Number(state.world.temperature.toFixed(2));
 }

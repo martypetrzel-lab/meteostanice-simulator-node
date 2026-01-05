@@ -1,45 +1,41 @@
-import express from "express";
 import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import express from "express";
+import cors from "cors";
 import { Simulator } from "./simulator.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const app = express();
-const PORT = process.env.PORT || 8080;
+app.use(cors({ origin: "*" }));
 
-/* ================== CORS ================== */
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  next();
-});
-
-/* ================== LOAD STATE ================== */
+/* ===== LOAD STATE SAFE ===== */
 let initialState = {};
 try {
-  const raw = fs.readFileSync(path.join(__dirname, "state.json"), "utf-8");
-  initialState = JSON.parse(raw);
-} catch {
-  console.warn("⚠️ state.json nenalezen – startuji s prázdným stavem");
+  if (fs.existsSync("./state.json")) {
+    initialState = JSON.parse(fs.readFileSync("./state.json", "utf8"));
+  }
+} catch (e) {
+  console.warn("⚠️ Nelze načíst state.json, startuji čistě");
 }
 
-/* ================== SIMULATOR ================== */
+/* ===== SIMULATOR ===== */
 const simulator = new Simulator(initialState);
 
+/* ===== TICK ===== */
 setInterval(() => {
   simulator.tick();
+
+  // uložit stav
+  fs.writeFileSync(
+    "./state.json",
+    JSON.stringify(simulator.getState(), null, 2)
+  );
 }, 1000);
 
-/* ================== API ================== */
+/* ===== API ===== */
 app.get("/state", (req, res) => {
   res.json(simulator.getState());
 });
 
-/* ================== START ================== */
-app.listen(PORT, () => {
-  console.log(`✅ Meteostanice backend běží na portu ${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () =>
+  console.log("✅ Simulator běží na portu", PORT)
+);
