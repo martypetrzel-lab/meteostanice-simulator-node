@@ -7,7 +7,6 @@ import { memoryTick } from "./memory.js";
 export class Simulator {
   constructor() {
     this.state = this.loadState();
-    this.lastTick = Date.now();
   }
 
   loadState() {
@@ -20,7 +19,11 @@ export class Simulator {
           isDay: true,
           dayIndex: 0
         },
-        world: {},
+        world: {
+          temperature: 15,
+          light: 300,
+          cloudiness: 0
+        },
         device: {
           temperature: 15,
           humidity: 50,
@@ -52,8 +55,10 @@ export class Simulator {
 
   tick() {
     const now = Date.now();
+    const hours = new Date(now).getHours();
+
     this.state.time.now = now;
-    this.state.time.isDay = new Date(now).getHours() >= 7 && new Date(now).getHours() <= 18;
+    this.state.time.isDay = hours >= 7 && hours <= 18;
 
     worldTick(this.state);
     deviceTick(this.state);

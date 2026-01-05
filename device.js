@@ -6,12 +6,13 @@ export function deviceTick(state) {
   state.device.temperature = state.world.temperature;
   state.device.light = state.world.light;
 
-  state.device.power = {
-    solarInW: Number(solar.toFixed(3)),
-    loadW: load,
-    balanceWh: Number((balance / 3600).toFixed(6))
-  };
+  state.device.power.solarInW = Number(solar.toFixed(3));
+  state.device.power.loadW = load;
+  state.device.power.balanceWh = Number((balance / 3600).toFixed(6));
 
   state.device.battery.voltage = Number((3.7 + balance * 0.1).toFixed(2));
-  state.device.battery.soc = Math.min(1, Math.max(0, state.device.battery.soc + balance * 0.001));
+  state.device.battery.soc = Math.min(
+    1,
+    Math.max(0, state.device.battery.soc + balance * 0.001)
+  );
 }

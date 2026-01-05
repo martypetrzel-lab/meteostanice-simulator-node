@@ -9,6 +9,7 @@ app.use(cors());
 
 const simulator = new Simulator();
 
+// 1s = 1 tick simulace
 setInterval(() => {
   simulator.tick();
 }, 1000);

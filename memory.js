@@ -1,8 +1,12 @@
 export function memoryTick(state, label) {
-  state.memory.today.temperature.push({
-    t: label,
-    v: Number(state.device.temperature.toFixed(2))
-  });
+  const temp = state.device.temperature;
+
+  if (typeof temp === "number") {
+    state.memory.today.temperature.push({
+      t: label,
+      v: Number(temp.toFixed(2))
+    });
+  }
 
   state.memory.today.energyIn.push({
     t: label,

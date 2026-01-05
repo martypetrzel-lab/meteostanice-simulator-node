@@ -2,9 +2,7 @@ export function updateBrain(state) {
   const soc = Math.round(state.device.battery.soc * 100);
   const light = Math.round(state.device.light);
 
-  let message = "Čekám na data…";
-  let details = [];
-
+  let message;
   if (soc < 20) {
     message = "Nízká baterie, šetřím energii";
   } else if (light > 300) {
@@ -13,8 +11,11 @@ export function updateBrain(state) {
     message = "Podmínky stabilní, sbírám data";
   }
 
-  details.push(`SOC: ${soc} %`);
-  details.push(`Světlo: ${light} lx`);
-
-  return { message, details };
+  return {
+    message,
+    details: [
+      `SOC: ${soc} %`,
+      `Světlo: ${light} lx`
+    ]
+  };
 }
