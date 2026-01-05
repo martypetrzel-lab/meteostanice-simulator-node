@@ -1,21 +1,36 @@
-import http from "http";
+// server.js
+import express from "express";
 import { Simulator } from "./simulator.js";
 
-const sim = new Simulator();
+const app = express();
+const PORT = process.env.PORT || 8080;
 
-setInterval(() => sim.tick(), 1000);
+const simulator = new Simulator();
 
-const server = http.createServer((req, res) => {
-  if (req.url === "/state") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(sim.getState(), null, 2));
-    return;
-  }
-
-  res.writeHead(404);
-  res.end("Not Found");
+/* =========================
+   CORS – POVOLENÍ UI
+========================= */
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  next();
 });
 
-server.listen(8080, () => {
-  console.log("✅ Simulator běží na portu 8080");
+/* =========================
+   API
+========================= */
+app.get("/state", (req, res) => {
+  res.json(simulator.state);
+});
+
+/* =========================
+   START
+========================= */
+setInterval(() => {
+  simulator.tick();
+}, 1000);
+
+app.listen(PORT, () => {
+  console.log(`✅ Simulator běží na portu ${PORT}`);
 });
