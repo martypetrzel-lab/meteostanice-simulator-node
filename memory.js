@@ -1,25 +1,23 @@
-export function tickMemory(state) {
-  const now = new Date(state.time.now);
-  const label = now.toLocaleTimeString("cs-CZ", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-
-  const mem = state.memory.today;
-
-  mem.temperature.push({
+export function memoryTick(state, label) {
+  state.memory.today.temperature.push({
     t: label,
     v: Number(state.device.temperature.toFixed(2))
   });
 
-  mem.energyIn.push({
+  state.memory.today.energyIn.push({
     t: label,
     v: state.device.power.solarInW
   });
 
-  mem.energyOut.push({
+  state.memory.today.energyOut.push({
     t: label,
     v: state.device.power.loadW
   });
+
+  // limit na 300 bodů (5 minut)
+  for (const key of ["temperature", "energyIn", "energyOut"]) {
+    if (state.memory.today[key].length > 300) {
+      state.memory.today[key].shift();
+    }
+  }
 }

@@ -1,22 +1,21 @@
-export function tickDevice(state) {
-  const env = state.world.environment;
+export function deviceTick(state) {
+  const solar = state.time.isDay ? state.world.light / 1000 : 0;
+  const load = 0.18;
 
-  state.device.temperature = env.temperature;
-  state.device.light = env.light;
-  state.device.humidity = 50;
+  const balance = solar - load;
 
-  const solar = env.light / 1200;
-  state.device.power.solarInW = Number(solar.toFixed(3));
-
-  const net = solar - state.device.power.loadW;
-  state.device.power.balanceWh += net * (5 / 3600);
-
-  state.device.battery.soc = Math.max(
-    0,
-    Math.min(1, state.device.battery.soc + net * 0.0005)
-  );
-
-  state.device.battery.voltage = Number(
-    (3.6 + state.device.battery.soc * 0.4).toFixed(2)
-  );
+  state.device = {
+    temperature: state.world.temperature,
+    light: state.world.light,
+    battery: {
+      voltage: 3.7 + balance * 0.1,
+      soc: Math.min(1, Math.max(0, 0.6 + balance * 0.05))
+    },
+    power: {
+      solarInW: Number(solar.toFixed(3)),
+      loadW: load,
+      balanceWh: Number((balance / 3600).toFixed(6))
+    },
+    fan: false
+  };
 }
