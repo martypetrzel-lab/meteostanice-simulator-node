@@ -4,9 +4,20 @@ export function createMemoryRoot() {
       key: null,
       temperature: [],
       energyIn: [],
-      energyOut: []
+      energyOut: [],
+      totals: {
+        energyInWh: 0,
+        energyOutWh: 0
+      },
+      stats: {
+        minT: null,
+        maxT: null,
+        avgT: null
+      }
     },
     days: [],
-    experiences: {}
+    weeks: [],
+    experiences: {},
+    experienceCounters: {}
   };
 }

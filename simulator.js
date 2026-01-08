@@ -1,12 +1,12 @@
 import { worldTick } from "./world.js";
+import { decide } from "./brain.js";
 import { deviceTick } from "./device.js";
 import { memoryTick } from "./memory.js";
-import { decide } from "./brain.js";
 
 export function tick(state) {
   worldTick(state);
 
-  // aby se rozhodnutí projevil hned v tom samém ticku (např. fan -> větší load)
+  // rozhodnutí se projeví hned (ovlivní load atd.)
   decide(state);
 
   deviceTick(state);

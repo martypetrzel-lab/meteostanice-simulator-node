@@ -1,6 +1,6 @@
 {
   "name": "meteostanice-simulator",
-  "version": "3.9.0",
+  "version": "3.14.0",
   "type": "module",
   "scripts": {
     "start": "node server.js"
