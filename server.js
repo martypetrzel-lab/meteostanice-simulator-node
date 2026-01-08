@@ -1,23 +1,22 @@
+// server.js
 import express from "express";
 import cors from "cors";
-import fs from "fs";
 import { tick } from "./simulator.js";
+import state from "./state.json" assert { type: "json" };
 
 const app = express();
 app.use(cors());
 
-let state = JSON.parse(fs.readFileSync("state.json", "utf8"));
-
 setInterval(() => {
-  state.time.now = Date.now();
+  state.time.now += 1000;
   tick(state);
-  fs.writeFileSync("state.json", JSON.stringify(state, null, 2));
 }, 1000);
 
 app.get("/state", (req, res) => {
   res.json(state);
 });
 
-app.listen(3000, () =>
-  console.log("EIRA B 3.7 běží (stabilní)")
-);
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log("EIRA B 3.7.1 běží (stabilní)");
+});

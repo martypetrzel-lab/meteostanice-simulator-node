@@ -1,8 +1,15 @@
+// device.js
 export function deviceTick(state) {
-  if (state.device.fan) {
-    state.device.temperature -= 0.3;
-    state.energy.out += 0.4;
-  } else {
-    state.device.temperature += 0.2;
+  if (!state.device) {
+    state.device = {};
   }
+
+  if (state.device.battery === undefined) {
+    state.device.battery = 50;
+  }
+
+  const drain = state.device.fan ? 0.2 : 0.05;
+  state.device.battery -= drain;
+
+  if (state.device.battery < 0) state.device.battery = 0;
 }
