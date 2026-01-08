@@ -1,8 +1,18 @@
 // server.js
 import express from "express";
 import cors from "cors";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
 import { tick } from "./simulator.js";
-import state from "./state.json" assert { type: "json" };
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// bezpečné načtení state.json
+const statePath = path.join(__dirname, "state.json");
+const state = JSON.parse(fs.readFileSync(statePath, "utf-8"));
 
 const app = express();
 app.use(cors());
@@ -18,5 +28,5 @@ app.get("/state", (req, res) => {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log("EIRA B 3.7.1 běží (stabilní)");
+  console.log("EIRA B 3.7.2 běží (Railway compatible)");
 });
