@@ -1,17 +1,14 @@
-export function createWorld() {
-  return {
-    latitude: 50.1,
-    dayLength: 24 * 60 * 60 * 1000
-  };
-}
+export function worldTick(state) {
+  const hour = new Date(state.time.now).getHours();
 
-export function computeLight(now) {
-  const dayMs = 24 * 60 * 60 * 1000;
-  const t = (now % dayMs) / dayMs;
+  // světlo
+  if (hour >= 7 && hour <= 18) {
+    state.world.light = 200 + Math.random() * 400;
+  } else {
+    state.world.light = 5 + Math.random() * 10;
+  }
 
-  // sinus den/noc (0–1)
-  const sun = Math.max(0, Math.sin(Math.PI * (t - 0.25)));
-
-  // max cca 900 lx
-  return sun * 900;
+  // teplota prostředí
+  const drift = (Math.random() - 0.5) * 0.1;
+  state.world.temperature += drift;
 }

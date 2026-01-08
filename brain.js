@@ -1,17 +1,25 @@
 export function decide(state) {
-  const { device, power } = state;
+  const d = state.device;
+  const w = state.world;
 
-  if (power.soc < 0.2)
-    return "Nízký SOC – šetřím energii";
+  const LOW_ENERGY = d.battery.soc < 0.25;
+  const OVERHEAT = d.temperature > 40;
 
-  if (device.temperature > 30 && power.soc > 0.4)
-    return "Vysoká teplota – připraven chladit";
+  if (OVERHEAT && !LOW_ENERGY) {
+    d.fan = true;
+    state.brain.verdict = "Přehřátí – chladím";
+    return;
+  }
 
-  if (power.production > power.load)
-    return "Dostatek energie – nabíjím";
+  if (OVERHEAT && LOW_ENERGY) {
+    d.fan = false;
+    state.brain.verdict =
+      "⚠️ Riskuji přehřátí, energie je kritická. Poučím se.";
+    return;
+  }
 
-  if (power.production === 0)
-    return "Noc – běžím úsporně";
-
-  return "Podmínky stabilní";
+  if (d.temperature < 35) {
+    d.fan = false;
+    state.brain.verdict = "Podmínky stabilní";
+  }
 }

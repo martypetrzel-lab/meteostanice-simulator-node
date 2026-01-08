@@ -1,14 +1,9 @@
-export function createEmptyMemory() {
+export function createDaySummary() {
   return {
-    today: {
-      temperature: [],
-      humidity: [],
-      light: [],
-      energyIn: [],
-      energyOut: []
-    },
-    history: {
-      days: []
-    }
+    minTemp: null,
+    maxTemp: null,
+    energyLow: false,
+    overheated: false,
+    note: ""
   };
 }

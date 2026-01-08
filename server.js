@@ -3,18 +3,17 @@ import cors from "cors";
 import { Simulator } from "./simulator.js";
 
 const app = express();
-const sim = new Simulator();
-
 app.use(cors());
-app.use(express.static("public"));
+app.use(express.json());
+
+const simulator = new Simulator();
+setInterval(() => simulator.tick(), 1000);
 
 app.get("/state", (req, res) => {
-  res.json(sim.getState());
+  res.json(simulator.state);
 });
 
-setInterval(() => sim.tick(1), 1000);
-
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("✅ Simulator běží na portu", PORT);
+  console.log("🚀 EIRA B 3.6 běží na portu", PORT);
 });
