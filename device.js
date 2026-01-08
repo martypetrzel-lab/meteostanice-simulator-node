@@ -1,22 +1,15 @@
 export function deviceTick(state) {
-  const d = state.device;
-  const w = state.world;
+  if (!state.device) {
+    state.device = {
+      temperature: 25,
+      fan: false
+    };
+  }
 
-  // solární vstup
-  d.power.solarInW = w.light > 50 ? w.light / 400 : 0;
-
-  // zátěž
-  d.power.loadW = d.fan ? 1.0 : 0.2;
-
-  const balance = d.power.solarInW - d.power.loadW;
-
-  // baterie
-  d.battery.soc += balance * 0.0002;
-  d.battery.soc = Math.max(0, Math.min(1, d.battery.soc));
-
-  d.battery.voltage = 3.3 + d.battery.soc * 0.9;
-
-  // teplota zařízení
-  if (d.fan) d.temperature -= 0.05;
-  else d.temperature += (w.temperature - d.temperature) * 0.01;
+  if (state.device.fan) {
+    state.device.temperature -= 0.3;
+    state.energy.out += 0.4;
+  } else {
+    state.device.temperature += 0.2;
+  }
 }

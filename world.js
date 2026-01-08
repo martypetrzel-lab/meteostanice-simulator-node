@@ -1,14 +1,11 @@
 export function worldTick(state) {
   const hour = new Date(state.time.now).getHours();
 
-  // světlo
-  if (hour >= 7 && hour <= 18) {
-    state.world.light = 200 + Math.random() * 400;
-  } else {
-    state.world.light = 5 + Math.random() * 10;
-  }
+  state.environment.light =
+    hour >= 7 && hour <= 18
+      ? Math.random() * 200 + 200
+      : Math.random() * 20;
 
-  // teplota prostředí
-  const drift = (Math.random() - 0.5) * 0.1;
-  state.world.temperature += drift;
+  state.environment.temperature +=
+    (Math.random() - 0.5) * 0.4;
 }

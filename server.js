@@ -1,19 +1,23 @@
 import express from "express";
 import cors from "cors";
-import { Simulator } from "./simulator.js";
+import fs from "fs";
+import { tick } from "./simulator.js";
 
 const app = express();
 app.use(cors());
-app.use(express.json());
 
-const simulator = new Simulator();
-setInterval(() => simulator.tick(), 1000);
+let state = JSON.parse(fs.readFileSync("state.json", "utf8"));
+
+setInterval(() => {
+  state.time.now = Date.now();
+  tick(state);
+  fs.writeFileSync("state.json", JSON.stringify(state, null, 2));
+}, 1000);
 
 app.get("/state", (req, res) => {
-  res.json(simulator.state);
+  res.json(state);
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("🚀 EIRA B 3.6 běží na portu", PORT);
-});
+app.listen(3000, () =>
+  console.log("EIRA B 3.7 běží")
+);

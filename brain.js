@@ -1,25 +1,39 @@
+import { rememberExperience } from "./memory.js";
+
 export function decide(state) {
-  const d = state.device;
-  const w = state.world;
+  const exp = state.memory.experiences;
 
-  const LOW_ENERGY = d.battery.soc < 0.25;
-  const OVERHEAT = d.temperature > 40;
+  let verdict = "STABILNÍ";
 
-  if (OVERHEAT && !LOW_ENERGY) {
-    d.fan = true;
-    state.brain.verdict = "Přehřátí – chladím";
-    return;
+  const overheatingRisk = state.device.temperature > 65;
+  const lowEnergyRisk = state.energy.soc < 20;
+
+  // váhy zkušeností
+  const heatWeight = exp.overheating * 5;
+  const energyWeight = exp.lowEnergy * 5;
+
+  if (lowEnergyRisk && !overheatingRisk) {
+    verdict = "RIZIKO_PŘEHŘÁTÍ";
+    state.device.fan = true;
+    rememberExperience(state, "riskyDecision");
   }
 
-  if (OVERHEAT && LOW_ENERGY) {
-    d.fan = false;
-    state.brain.verdict =
-      "⚠️ Riskuji přehřátí, energie je kritická. Poučím se.";
-    return;
+  if (overheatingRisk) {
+    verdict = "PŘEHŘÁTÍ";
+    rememberExperience(state, "overheating");
+    state.device.fan = true;
   }
 
-  if (d.temperature < 35) {
-    d.fan = false;
-    state.brain.verdict = "Podmínky stabilní";
+  if (lowEnergyRisk) {
+    rememberExperience(state, "lowEnergy");
+  }
+
+  state.brain.lastVerdict = verdict;
+
+  if (verdict !== "STABILNÍ") {
+    state.brain.message =
+      "Učila jsem se z rizika. Pamatuji si to.";
+  } else {
+    state.brain.message = "Podmínky jsou vyrovnané.";
   }
 }

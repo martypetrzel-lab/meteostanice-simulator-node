@@ -1,9 +1,16 @@
-export function createDaySummary() {
+export function createMemoryRoot() {
   return {
-    minTemp: null,
-    maxTemp: null,
-    energyLow: false,
-    overheated: false,
-    note: ""
+    today: {
+      key: null,
+      temperature: [],
+      energyIn: [],
+      energyOut: [],
+    },
+    days: [],
+    experiences: {
+      overheating: 0,
+      lowEnergy: 0,
+      riskyDecision: 0
+    }
   };
 }
