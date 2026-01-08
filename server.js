@@ -19,5 +19,5 @@ app.get("/state", (req, res) => {
 });
 
 app.listen(3000, () =>
-  console.log("EIRA B 3.7 běží")
+  console.log("EIRA B 3.7 běží (stabilní)")
 );

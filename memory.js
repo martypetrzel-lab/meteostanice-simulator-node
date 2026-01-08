@@ -1,3 +1,5 @@
+import { createMemoryRoot } from "./memorySchema.js";
+
 function todayKey(ts) {
   return new Date(ts).toISOString().slice(0, 10);
 }
@@ -30,13 +32,4 @@ export function memoryTick(state) {
     t: state.time.now,
     v: state.environment.temperature
   });
-
-  state.memory.today.energyIn.push(state.energy.in);
-  state.memory.today.energyOut.push(state.energy.out);
-}
-
-export function rememberExperience(state, type) {
-  if (state.memory.experiences[type] !== undefined) {
-    state.memory.experiences[type]++;
-  }
 }

@@ -8,10 +8,6 @@ export function decide(state) {
   const overheatingRisk = state.device.temperature > 65;
   const lowEnergyRisk = state.energy.soc < 20;
 
-  // váhy zkušeností
-  const heatWeight = exp.overheating * 5;
-  const energyWeight = exp.lowEnergy * 5;
-
   if (lowEnergyRisk && !overheatingRisk) {
     verdict = "RIZIKO_PŘEHŘÁTÍ";
     state.device.fan = true;
@@ -29,11 +25,8 @@ export function decide(state) {
   }
 
   state.brain.lastVerdict = verdict;
-
-  if (verdict !== "STABILNÍ") {
-    state.brain.message =
-      "Učila jsem se z rizika. Pamatuji si to.";
-  } else {
-    state.brain.message = "Podmínky jsou vyrovnané.";
-  }
+  state.brain.message =
+    verdict === "STABILNÍ"
+      ? "Podmínky jsou vyrovnané."
+      : "Riskovala jsem. Pamatuji si to.";
 }
