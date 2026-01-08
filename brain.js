@@ -1,8 +1,6 @@
 import { rememberExperience } from "./memory.js";
 
 export function decide(state) {
-  const exp = state.memory.experiences;
-
   let verdict = "STABILNÍ";
 
   const overheatingRisk = state.device.temperature > 65;
@@ -16,8 +14,8 @@ export function decide(state) {
 
   if (overheatingRisk) {
     verdict = "PŘEHŘÁTÍ";
-    rememberExperience(state, "overheating");
     state.device.fan = true;
+    rememberExperience(state, "overheating");
   }
 
   if (lowEnergyRisk) {

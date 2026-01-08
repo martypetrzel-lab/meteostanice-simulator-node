@@ -10,6 +10,21 @@ export function initMemory(state) {
   }
 }
 
+export function rememberExperience(state, type) {
+  initMemory(state);
+
+  if (!state.memory.experiences[type]) {
+    state.memory.experiences[type] = 0;
+  }
+
+  state.memory.experiences[type]++;
+
+  state.memory.lastExperience = {
+    type,
+    time: state.time.now
+  };
+}
+
 export function memoryTick(state) {
   initMemory(state);
 
