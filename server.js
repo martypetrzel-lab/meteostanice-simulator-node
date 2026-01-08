@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import cors from "cors";
 import fs from "fs";
@@ -9,34 +10,43 @@ import { tick } from "./simulator.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// načtení state.json (lokální varianta)
+// bezpečné načtení state.json
 const statePath = path.join(__dirname, "state.json");
 const state = JSON.parse(fs.readFileSync(statePath, "utf-8"));
 
 const app = express();
 app.use(cors());
 
-// UI static
-const publicDir = path.join(__dirname, "public");
-app.use(express.static(publicDir));
+// --- REAL TIME SYNC ---
+let lastReal = Date.now();
 
+// pokud v state.json chybí time, dorobíme
+if (!state.time) state.time = {};
+state.time.now = Date.now();
+
+// hlavní smyčka: sim čas = reálný čas
 setInterval(() => {
-  state.time.now += 1000;
-  tick(state);
+  const now = Date.now();
+  const dtMs = now - lastReal;
+  lastReal = now;
+
+  state.time.now = now;      // ✅ sim čas = realita
+  tick(state, dtMs);         // dtMs pro případné budoucí modely
 }, 1000);
 
-app.get("/state", (req, res) => res.json(state));
-
 app.get("/health", (req, res) => {
-  res.json({ ok: true, version: "UI-prototype", now: state?.time?.now ?? null });
+  res.json({
+    ok: true,
+    now: Date.now(),
+    version: "B 3.8 (real-time sync)"
+  });
 });
 
-// fallback na index (kdyby někdo otevřel /dnes apod.)
-app.get("*", (req, res) => {
-  res.sendFile(path.join(publicDir, "index.html"));
+app.get("/state", (req, res) => {
+  res.json(state);
 });
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log("EIRA UI Prototype běží (Railway compatible)");
+  console.log("EIRA B 3.8 běží (real-time synced)");
 });
