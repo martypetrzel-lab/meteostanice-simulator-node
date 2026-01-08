@@ -1,0 +1,64 @@
+[33m6b93869[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m B3.6 – real-time fyzikální simulace + živé UI ze /state
+[33me13e899[m B3.5 fix: add express dependency
+[33mde36ac8[m B3.5: enable CORS for public UI
+[33m24a3d17[m B3.5: explainable brain + stable memory schema
+[33m642bff1[m B3.4: prediction-based brain and forward planning
+[33mc04c2bf[m B3.3: learning brain, decision memory, adaptive thresholds
+[33mc4192b7[m B3.2: energy model, fan power, predictive decision logic
+[33m4479036[m B3.1: defensive memory schema + stable simulator tick
+[33m9aa9ea6[m feat: add /state endpoint for simulator state
+[33m6d61a18[m fix: correct memorySchema import casing
+[33m27ab330[m B3.0 daily & weekly aggregation, brain inputs
+[33m35fd236[m B2.3 memory schema lock – safe init, no undefined push
+[33maf0d5d1[m ZALOHA 0.5 (B2.2): realne denni eventy (dest, vedro, mraz) + dopad na mozek a energii
+[33mdbae022[m ZALOHA 0.4 (B2.1): inteligentni predikce, trendove rizeni ventilatoru
+[33meffd862[m ZALOHA 0.3 (B2.0): energie + fan + brain decision
+[33m553be67[m B2: energy model, fan logic, penalties, realistic cooling
+[33m75029a3[m B1: brain logic, prediction, learning mode, safe state
+[33mc32bc10[m fix: safe state migration, prevent memory.today.* crashes
+[33m3e84082[m feat: simulator 0.2 – world + energy + fan logic
+[33m690a284[m fix: A safe migration state + null protection (backup 0.2)
+[33m8566ec1[m debug: simulator version marker
+[33m3cb7bc2[m fix: safe migration of memory.today.light
+[33m8bb7a42[m fix: remove broken package-lock to stop npm ci
+[33me7589ea[m fix: railway build stuck - use npm install
+[33m1c90215[m fix: stable simulator 0.2 (server + world)
+[33m58a5325[m fix: simulator world logic stable tick
+[33m712e929[m fix: server start, simulator import, railway hang
+[33m6e1ccd2[m chore: ignore node_modules
+[33m23474a6[m fix: remove node_modules from repo
+[33md5fe85e[m ZALOHA 0.2 – oprava simulace sveta + server init + world logika
+[33mdcd77f0[m fix: enable CORS for public UI (GitHub Pages)
+[33m81a95db[m fix: replace json import assertion with fs loader (Railway compatible)
+[33me1bb084[m fix: harden Simulator against undefined state (Railway crash)
+[33m6b9a006[m fix: Simulator init when state is undefined (Railway crash fix)
+[33m5e8ce32[m fix: device mode (stav) logic + safety init
+[33mc9decc8[m fix: stabilni simulator + device power + getState
+[33m2a87b13[m Fix: Simulator handles missing state (Railway safe)
+[33m8503e12[m Brain: add device mode/state for UI (ACTIVE, CHARGING, SAVING, NIGHT, CRITICAL)
+[33m0898671[m History: daily aggregation and weekly min/max storage
+[33m90ba105[m World: realistic day cycle with sun curve, weather memory and inertia
+[33md26d948[m Make simulation realistic: slow temperature, adaptive measurement, quiet brain
+[33m2c4edbf[m Fix brain crash: defensive state init + resilient learning stats
+[33mf334212[m Adaptive sampling, learning brain, prediction from history
+[33m1da92a3[m Realistic day simulation, events, adaptive brain
+[33ma3d6893[m Fix null temperature, stabilize state, UI alive
+[33m13cfdc6[m Deploy to Railway
+[33m36a0336[m fix: add cors dependency
+[33m9849811[m fix: init state + 1s real-time simulator tick
+[33ma625a14[m force remove json assert (railway debug)
+[33mdd2f8f8[m fix: remove json import assert, load state via fs
+[33mc6e7a09[m fix: remove cors dependency, manual CORS + realtime tick
+[33m6a71667[m fix: realtime simulator tick 1s
+[33m675596a[m fix: remove Simulator class, run live 1s simulation
+[33m31dd125[m fix: brain export + 1s live simulation
+[33ma622e0a[m fix: brain export + realtime simulator tick 1s
+[33mf083422[m fix: real-time 1s simulator tick
+[33mcddff98[m fix: map state to UI structure
+[33mc41a4fd[m fix: live 1s simulation + sensors mapping
+[33mcfdc060[m fix: enable CORS for GitHub Pages
+[33mbbe7828[m fix: add express dependency
+[33ma635d38[m fix: update server.js
+[33mf985089[m FIX: ziva 1s simulace + 21 dni + mozek
+[33mf048cf4[m initial upload from local backup
+[33m0198f85[m initial commit
