@@ -7,43 +7,54 @@ export function deviceTick(state) {
   if (!state.world) state.world = {};
   if (!state.world.environment) state.world.environment = { temperature: 15, light: 0 };
 
-  // battery model
+  // Battery model
   if (!state.device.battery) {
     state.device.battery = { voltage: 3.84, soc: 0.6 };
   }
 
-  // power model
+  // Power model
   if (!state.device.power) {
     state.device.power = { solarInW: 0, loadW: 0.18, balanceWh: 0 };
   }
 
-  const light = state.world.environment.light ?? 0;
+  const light = Number(state.world.environment.light ?? 0);
 
-  // solar input: 0..1.2W (sim)
-  const solarInW = (light / 1000) * 1.2;
+  // Solar input: 0..1.2W (sim)
+  const solarInW_raw = (light / 1000) * 1.2;
 
-  // load: base + fan
+  // Load: base + fan
   const baseLoadW = 0.18;
   const fanExtraW = state.device.fan ? 0.35 : 0.0;
-  const loadW = baseLoadW + fanExtraW;
+  const loadW_raw = baseLoadW + fanExtraW;
 
   // balance over 1 second (Wh)
-  const netW = solarInW - loadW;
+  const netW = solarInW_raw - loadW_raw;
   const deltaWh = netW / 3600;
 
-  state.device.power.solarInW = Number(solarInW.toFixed(3));
-  state.device.power.loadW = Number(loadW.toFixed(3));
+  // Zaokrouhlení do stavu (aby UI neukazovalo 20 desetinných míst)
+  const solarInW = Number(solarInW_raw.toFixed(3));
+  const loadW = Number(loadW_raw.toFixed(3));
+
+  state.device.power.solarInW = solarInW;
+  state.device.power.loadW = loadW;
   state.device.power.balanceWh = Number((state.device.power.balanceWh + deltaWh).toFixed(6));
 
-  // SOC change: model battery capacity (Wh)
-  const batteryWh = state.device?.config?.batteryWh ?? 10; // configurable later
+  // SOC změna: model kapacity baterie (Wh)
+  const batteryWh = state.device?.config?.batteryWh ?? 10;
   const deltaSoc = deltaWh / batteryWh;
 
   state.device.battery.soc = clamp(state.device.battery.soc + deltaSoc, 0, 1);
   state.device.battery.voltage = Number((3.0 + state.device.battery.soc * 1.2).toFixed(2));
 
-  // “sensor” values on device
-  state.device.temperature = Number((state.world.environment.temperature ?? 0).toFixed(2));
+  // “sensor” values on device (zaokrouhlené)
+  const t = state.world.environment.temperature ?? 0;
+  state.device.temperature = Number(Number(t).toFixed(2));
   if (state.device.humidity === undefined) state.device.humidity = 50;
   state.device.light = light;
+
+  // --- Kompatibilní zrcadla pro UI (aby nepsalo --) ---
+  // Spousta UI si bere SOC jako procenta a výkon rovnou z device.*
+  state.device.socPct = Math.round(state.device.battery.soc * 100); // 0..100
+  state.device.solarInW = solarInW;
+  state.device.loadW = loadW;
 }

@@ -13,15 +13,17 @@ export function worldTick(state) {
 
   // slunce: sin posun, aby "noc" byla kolem půlnoci
   const sun = Math.sin((phase - 0.25) * 2 * Math.PI); // -1..1
-  const lightNorm = clamp((sun + 0.12) / 1.12, 0, 1); // delší přechody
+  const lightNorm = clamp((sun + 0.12) / 1.12, 0, 1);
+
+  // Světlo: celé lx (0..1000)
   const light = Math.round(lightNorm * 1000);
 
-  // teplota: základ + vliv světla + mikrovlna
+  // Teplota: zaokrouhlená na 2 desetinná (aby to nevypadalo šíleně)
   const micro = Math.sin(state.time.now / 900000) * 0.6;
   const temperature = 8 + lightNorm * 18 + micro;
 
   state.world.environment.light = light;
-  state.world.environment.temperature = temperature;
+  state.world.environment.temperature = Number(temperature.toFixed(2));
 
   state.world.time = state.time;
   state.time.isDay = light > 120;
