@@ -1,14 +1,12 @@
-// world.js
 export function worldTick(state) {
-  if (!state.environment) {
-    state.environment = {};
-  }
+  if (!state.world) state.world = {};
+  if (!state.world.environment) state.world.environment = {};
 
-  state.environment.light = Math.max(
-    0,
-    Math.sin(state.time.now / 60000) * 100
-  );
+  const light =
+    Math.max(0, Math.sin(state.time.now / 60000) * 100);
 
-  state.environment.temperature =
-    20 + state.environment.light * 0.2;
+  state.world.environment.light = light;
+  state.world.environment.temperature = 20 + light * 0.2;
+
+  state.world.time = state.time;
 }

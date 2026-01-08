@@ -1,4 +1,3 @@
-// simulator.js
 import { worldTick } from "./world.js";
 import { deviceTick } from "./device.js";
 import { memoryTick } from "./memory.js";
