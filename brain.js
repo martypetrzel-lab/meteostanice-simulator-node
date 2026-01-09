@@ -1,7 +1,8 @@
-// brain.js (B 3.14)
+// brain.js (B 3.15)
 // Obsahuje:
-// - B 3.13: plánování "neumřít do svítání" (risk podle energie do rána)
+// - B 3.13: plánování "neumřít do svítání"
 // - B 3.14: sezónní solární profil (EMA po hodinách podle měsíce)
+// - B 3.15: Energetická identita zařízení (baterka/panel/load profily + kalibrace)
 // - Trend, rizika, stavové rozhodování + učení
 
 import { rememberExperience } from "./memory.js";
@@ -32,6 +33,11 @@ function fmt(n, d = 2) {
 
 function nowMs(state) {
   return Number(safeGet(state, "time.now", Date.now()));
+}
+
+function num(x, fallback = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function getPragueParts(ts) {
@@ -83,11 +89,6 @@ function msToNextSunset(ts, sunsetHour = SUNSET_H, sunsetMinute = 0) {
   return Math.round(deltaMin * 60 * 1000);
 }
 
-function num(x, fallback = 0) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : fallback;
-}
-
 // --- State reads ---
 function getSocPct(state) {
   const socPct =
@@ -115,23 +116,106 @@ function getPower(state) {
   return { solarW: Number(solarW) || 0, loadW: Number(loadW) || 0, netW };
 }
 
+// --- B 3.15: Device Identity (profil zařízení + kalibrace) ---
+function ensureDeviceIdentity(state) {
+  if (!state.device) state.device = {};
+  if (!state.device.identity) {
+    // Defaulty pro simulátor (můžeš přepsat v state.json nebo později v UI)
+    state.device.identity = {
+      version: "B3.15",
+      // baterka
+      batteryCapacityWh: num(safeGet(state, "device.batteryCapacityWh", 11.1), 11.1), // fallback 1x18650 ~11Wh
+      batteryMinSocPct: 5,              // nikdy nechci jít pod (kvůli životnosti)
+      // panel
+      panelMaxW: 1.0,                   // tvůj budoucí cíl je 5V/1W -> default 1W
+      // spotřeby / režimy (odhad)
+      loadNormalW: 0.18,                // typicky ESP + senzory
+      loadSavingW: 0.12,                // omezený sběr, méně práce
+      loadHibernateW: 0.06,             // minimální režim
+      fanExtraW: 0.20,                  // ventilátor (odhad)
+      // ztráty
+      systemEfficiency: 0.88,           // účinnost (step-up, nabíjení, ztráty)
+      // učení (EMA kalibrace)
+      learned: {
+        loadBaseEmaW: null,             // naučený baseline load při solar~0
+        loadBaseN: 0,
+        panelPeakEmaW: null,            // naučený peak panelu
+        panelPeakN: 0
+      }
+    };
+  } else {
+    state.device.identity.version = "B3.15";
+    if (state.device.identity.learned === undefined) {
+      state.device.identity.learned = { loadBaseEmaW: null, loadBaseN: 0, panelPeakEmaW: null, panelPeakN: 0 };
+    }
+  }
+  return state.device.identity;
+}
+
+function emaUpdate(current, x, alpha) {
+  if (current === null || current === undefined || !Number.isFinite(current)) return x;
+  return current + alpha * (x - current);
+}
+
+function calibrateIdentity(identity, solarW, loadW, fanOn) {
+  // Učení baseline spotřeby: když solár ~0 a fan off => loadW ~ baseline
+  if (solarW < 0.05 && !fanOn && loadW > 0) {
+    const n = (identity.learned.loadBaseN || 0) + 1;
+    identity.learned.loadBaseN = n;
+    const alpha = clamp(0.35 / Math.sqrt(n), 0.03, 0.35);
+    identity.learned.loadBaseEmaW = emaUpdate(identity.learned.loadBaseEmaW, loadW, alpha);
+  }
+
+  // Učení peak panelu: když solarW je vysoký (zachytit maximum)
+  if (solarW > 0.2) {
+    const n = (identity.learned.panelPeakN || 0) + 1;
+    identity.learned.panelPeakN = n;
+    const alpha = clamp(0.25 / Math.sqrt(n), 0.02, 0.25);
+    // panelPeak sledujeme jako EMA maxima (přitlačíme k vyšším hodnotám)
+    const target = Math.max(identity.learned.panelPeakEmaW || 0, solarW);
+    identity.learned.panelPeakEmaW = emaUpdate(identity.learned.panelPeakEmaW, target, alpha);
+  }
+
+  // Pokud máme naučený baseline, zaktualizuj loadNormalW jemně (ale neresetuj ruční nastavení)
+  if (identity.learned.loadBaseEmaW !== null && Number.isFinite(identity.learned.loadBaseEmaW)) {
+    // přibližně: normal = baseline, saving o trochu méně, hibernate výrazně méně
+    const base = identity.learned.loadBaseEmaW;
+    identity.loadNormalW = emaUpdate(identity.loadNormalW, base, 0.02);
+    identity.loadSavingW = emaUpdate(identity.loadSavingW, Math.max(0.05, base * 0.75), 0.02);
+    identity.loadHibernateW = emaUpdate(identity.loadHibernateW, Math.max(0.03, base * 0.35), 0.02);
+  }
+
+  // Pokud máme naučený peak panelu, zaktualizuj panelMaxW jemně
+  if (identity.learned.panelPeakEmaW !== null && Number.isFinite(identity.learned.panelPeakEmaW)) {
+    identity.panelMaxW = emaUpdate(identity.panelMaxW, identity.learned.panelPeakEmaW, 0.01);
+  }
+}
+
 // --- Battery / Wh ---
-function getAvailableWh(state) {
+function getAvailableWh(state, identity) {
   // preferuj balanceWh (nejlepší)
   const balWh =
     safeGet(state, "device.power.balanceWh", null) ??
     safeGet(state, "device.battery.balanceWh", null) ??
     null;
 
-  if (balWh !== null && balWh !== undefined) return Math.max(0, Number(balWh));
+  const eff = clamp(num(identity.systemEfficiency, 0.88), 0.6, 1.0);
 
-  // fallback: capacityWh * SOC
+  if (balWh !== null && balWh !== undefined) {
+    // balanceWh už zpravidla odpovídá "užitečné" energii; necháme bez eff
+    return Math.max(0, Number(balWh));
+  }
+
+  // fallback: capacityWh * SOC * eff
   const socPct = getSocPct(state);
   if (socPct === null) return null;
 
-  const capWh = num(safeGet(state, "device.batteryCapacityWh", 11.1), 11.1);
-  const availWh = (capWh * socPct) / 100;
-  return Math.max(0, availWh);
+  const capWh = num(identity.batteryCapacityWh, 11.1);
+  const minSoc = clamp(num(identity.batteryMinSocPct, 5), 0, 30);
+  const usableSocPct = clamp(socPct - minSoc, 0, 100);
+
+  const availWh = (capWh * usableSocPct) / 100;
+  return Math.max(0, availWh * eff);
 }
 
 // "výdrž v hodinách" (z Wh / W)
@@ -188,13 +272,13 @@ function ensureBrainModel(state) {
   if (!state.memory) state.memory = {};
   if (!state.memory.brainModel) {
     state.memory.brainModel = {
-      version: "B3.14",
-      conservativeness: 1.0,          // >1 = opatrnější
-      nightReservePct: 25,            // cílová noční rezerva SOC
-      samplingAggressiveness: 0.55,   // 0..1
-      // B 3.13: plánování do svítání
-      sunriseSafetyMarginWh: 0.8,     // kolik Wh chci mít navíc (buffer)
-      sunriseConfidenceMinN: 8,       // minimální počet vzorků v profilu pro "důvěru"
+      version: "B3.15",
+      conservativeness: 1.0,
+      nightReservePct: 25,
+      samplingAggressiveness: 0.55,
+      // B 3.13
+      sunriseSafetyMarginWh: 0.8,
+      sunriseConfidenceMinN: 8,
       counters: {
         riskEvents: 0,
         criticalEvents: 0,
@@ -203,7 +287,7 @@ function ensureBrainModel(state) {
       }
     };
   } else {
-    state.memory.brainModel.version = "B3.14";
+    state.memory.brainModel.version = "B3.15";
     if (state.memory.brainModel.sunriseSafetyMarginWh === undefined) state.memory.brainModel.sunriseSafetyMarginWh = 0.8;
     if (state.memory.brainModel.sunriseConfidenceMinN === undefined) state.memory.brainModel.sunriseConfidenceMinN = 8;
   }
@@ -220,14 +304,12 @@ function makeEmptyHourlyBins() {
 function ensureSolarProfiles(state) {
   if (!state.memory) state.memory = {};
 
-  // legacy (B3.11/3.12) global profile
   if (!state.memory.solarProfile) {
     state.memory.solarProfile = { version: "legacy", hours: makeEmptyHourlyBins() };
   } else if (!state.memory.solarProfile.hours) {
     state.memory.solarProfile.hours = makeEmptyHourlyBins();
   }
 
-  // new (B3.14) month profiles
   if (!state.memory.solarProfilesByMonth) {
     const byMonth = {};
     for (let m = 1; m <= 12; m++) byMonth[m] = { version: "B3.14", hours: makeEmptyHourlyBins() };
@@ -249,14 +331,12 @@ function updateSolarBin(bin, solarW, ts) {
   const n = (bin.n || 0) + 1;
   bin.n = n;
 
-  // EMA: rychlejší na začátku, později stabilnější
   const alpha = clamp(0.25 / Math.sqrt(n), 0.03, 0.25);
   bin.emaW = (n === 1) ? solarW : (bin.emaW + alpha * (solarW - bin.emaW));
   bin.lastTs = ts;
 }
 
 function updateSolarProfiles(profiles, month, hour, solarW, ts) {
-  // učíme jen ve dne, ať noc neshazuje EMA
   if (hour < SUNRISE_H || hour >= SUNSET_H) return;
 
   const mBin = profiles.byMonth?.[month]?.hours?.[hour];
@@ -266,7 +346,6 @@ function updateSolarProfiles(profiles, month, hour, solarW, ts) {
   if (gBin) updateSolarBin(gBin, solarW, ts);
 }
 
-// Predikce zbytku soláru do západu na základě profilu
 function expectedSolarWhRemaining(ts, profileHours) {
   const p = getPragueParts(ts);
   if (p.hour >= SUNSET_H) return 0;
@@ -295,7 +374,6 @@ function expectedSolarWhRemaining(ts, profileHours) {
 }
 
 function profileConfidence(profileHours, hourFrom = SUNRISE_H, hourTo = SUNSET_H - 1) {
-  // jednoduché: průměr n v denních hodinách
   let sum = 0;
   let cnt = 0;
   for (let h = hourFrom; h <= hourTo; h++) {
@@ -307,23 +385,20 @@ function profileConfidence(profileHours, hourFrom = SUNRISE_H, hourTo = SUNSET_H
 }
 
 // --- B 3.13 Sunrise survival planning ---
-function sunrisePlan(state, model, loadW, isDay, tNow) {
-  const availWh = getAvailableWh(state);
+function sunrisePlan(identityAvailWh, model, loadW, isDay, tNow) {
   const toSunriseMs = msToNextSunrise(tNow, SUNRISE_H, 0);
   const toSunriseH = toSunriseMs / (1000 * 60 * 60);
 
-  // Pokud je den, plán do svítání není "kritický", ale pořád informativní
-  // Pokud je noc, je to klíčové.
   const neededWh = Math.max(0, Number(loadW) * toSunriseH);
   const marginWh = Number(model.sunriseSafetyMarginWh || 0.8);
   const targetWh = neededWh + marginWh;
 
-  const willSurvive = (availWh === null) ? null : (availWh >= targetWh);
-  const deficitWh = (availWh === null) ? null : Math.max(0, targetWh - availWh);
-  const bufferWh = (availWh === null) ? null : (availWh - neededWh);
+  const willSurvive = (identityAvailWh === null) ? null : (identityAvailWh >= targetWh);
+  const deficitWh = (identityAvailWh === null) ? null : Math.max(0, targetWh - identityAvailWh);
+  const bufferWh = (identityAvailWh === null) ? null : (identityAvailWh - neededWh);
 
   return {
-    availWh,
+    availWh: identityAvailWh,
     toSunriseH,
     neededWh,
     marginWh,
@@ -331,7 +406,6 @@ function sunrisePlan(state, model, loadW, isDay, tNow) {
     willSurvive,
     deficitWh,
     bufferWh,
-    // nocní relevance
     isCriticalWindow: !isDay
   };
 }
@@ -359,7 +433,6 @@ function classifyEnergyState({ netW, socPct, hoursLeftNet }, isDay, model) {
 }
 
 function decideSampling(energyState, isDay, model, sunriseRiskBoost = 0) {
-  // sunriseRiskBoost 0..2: když hrozí smrt do svítání, o stupeň dolů
   const a = clamp(model.samplingAggressiveness, 0, 1);
 
   let mode;
@@ -382,7 +455,6 @@ function decideSampling(energyState, isDay, model, sunriseRiskBoost = 0) {
       break;
   }
 
-  // B 3.13: přitvrzení, pokud je riziko do svítání
   if (sunriseRiskBoost >= 2) {
     mode = "HIBERNATE";
   } else if (sunriseRiskBoost === 1) {
@@ -395,29 +467,25 @@ function decideSampling(energyState, isDay, model, sunriseRiskBoost = 0) {
   return mode;
 }
 
-function learn(model, energyState, socTrendPH, isDay, netW, sunrisePlanResult) {
+function learn(model, energyState, socTrendPH, isDay, netW, sunrise) {
   const c = model.counters;
 
   if (energyState === "DRAINING_RISK") c.riskEvents += 1;
   if (energyState === "CRITICAL") c.criticalEvents += 1;
 
-  // B 3.13: pokud opakovaně nevychází plán do svítání, přitvrď
-  if (sunrisePlanResult?.isCriticalWindow && sunrisePlanResult?.willSurvive === false) {
+  if (sunrise?.isCriticalWindow && sunrise?.willSurvive === false) {
     model.conservativeness = clamp(model.conservativeness + 0.01, 0.7, 1.6);
     model.nightReservePct = clamp(model.nightReservePct + 0.2, 10, 50);
     model.samplingAggressiveness = clamp(model.samplingAggressiveness - 0.01, 0, 1);
-    // malinko přidej bezpečnostní buffer
     model.sunriseSafetyMarginWh = clamp(num(model.sunriseSafetyMarginWh, 0.8) + 0.02, 0.2, 3.0);
   }
 
-  // rychlý pokles SOC = přitvrdit
   if (socTrendPH !== null && socTrendPH < -5) {
     model.conservativeness = clamp(model.conservativeness + 0.01, 0.7, 1.6);
     model.nightReservePct = clamp(model.nightReservePct + 0.2, 10, 50);
     model.samplingAggressiveness = clamp(model.samplingAggressiveness - 0.01, 0, 1);
   }
 
-  // dlouhý zisk ve dne = lehce povolit
   if (netW > 0.2 && isDay) {
     model.conservativeness = clamp(model.conservativeness - 0.002, 0.7, 1.6);
     model.samplingAggressiveness = clamp(model.samplingAggressiveness + 0.002, 0, 1);
@@ -434,19 +502,17 @@ function learn(model, energyState, socTrendPH, isDay, netW, sunrisePlanResult) {
     model.conservativeness = clamp(model.conservativeness + 0.05, 0.7, 1.6);
     model.nightReservePct = clamp(model.nightReservePct + 1.0, 10, 50);
     model.samplingAggressiveness = clamp(model.samplingAggressiveness - 0.03, 0, 1);
-    // i buffer do svítání
     model.sunriseSafetyMarginWh = clamp(num(model.sunriseSafetyMarginWh, 0.8) + 0.05, 0.2, 3.0);
     c.criticalEvents = 0;
   }
 }
 
-function makeMessage(energyState, isDay, netW, sunrisePlanResult) {
+function makeMessage(energyState, isDay, netW, sunrise) {
   const sign = netW >= 0 ? "+" : "";
   const netTxt = `${sign}${fmt(netW, 2)} W`;
 
-  // B 3.13: pokud je noc a nevydržím do svítání -> override message
-  if (sunrisePlanResult?.isCriticalWindow && sunrisePlanResult?.willSurvive === false) {
-    const deficit = sunrisePlanResult.deficitWh === null ? "—" : fmt(sunrisePlanResult.deficitWh, 2);
+  if (sunrise?.isCriticalWindow && sunrise?.willSurvive === false) {
+    const deficit = sunrise.deficitWh === null ? "—" : fmt(sunrise.deficitWh, 2);
     return `KRITICKÉ RIZIKO: nedožiju se svítání (chybí ~${deficit} Wh)`;
   }
 
@@ -470,10 +536,7 @@ function makeMessage(energyState, isDay, netW, sunrisePlanResult) {
 function setDeviceDirectives(state, samplingMode, energyState, sunriseHardRisk) {
   if (!state.device) state.device = {};
 
-  // API pro device
   state.device.samplingMode = samplingMode;
-
-  // savingMode když riziko/kritika nebo "hard risk do svítání"
   state.device.savingMode = ["DRAINING_RISK", "CRITICAL"].includes(energyState) || sunriseHardRisk;
 
   const interval =
@@ -496,9 +559,7 @@ function decideFan(state, energyState, socPct, sunriseHardRisk) {
     0
   );
 
-  // při hard risk do svítání fan raději off (pokud nejde o přehřátí)
   if (sunriseHardRisk && t < 35) return { fan: false, reason: "šetřím energii (přežít do svítání)" };
-
   if (energyState === "CRITICAL") return { fan: false, reason: "kritická energie" };
 
   const onT = 30;
@@ -532,7 +593,12 @@ export function decide(state) {
   const socPct = getSocPct(state);
   const { solarW, loadW, netW } = getPower(state);
 
-  // --- B 3.14: seasonal solar profiles ---
+  // B 3.15 identity + kalibrace
+  const identity = ensureDeviceIdentity(state);
+  const fanOnNow = !!safeGet(state, "device.fan", false);
+  calibrateIdentity(identity, solarW, loadW, fanOnNow);
+
+  // sezónní profily
   const profiles = ensureSolarProfiles(state);
   updateSolarProfiles(profiles, month, p.hour, solarW, tNow);
 
@@ -542,37 +608,41 @@ export function decide(state) {
   const confMonth = profileConfidence(monthHours);
   const confGlobal = profileConfidence(globalHours);
 
-  // volba profilu pro predikci: měsíc pokud má dost dat, jinak global
   const useMonth = confMonth >= num(model.sunriseConfidenceMinN, 8);
   const usedProfileHours = useMonth ? monthHours : globalHours;
 
   const expectedSolarWh = expectedSolarWhRemaining(tNow, usedProfileHours);
 
-  // runtime samples
+  // runtime trend
   pushSample(runtime, tNow, socPct, netW);
   const socTrendPH = socTrendPctPerHour(runtime, 30);
 
-  // výdrž při aktuálním net (jen když net záporný)
-  const availWh = getAvailableWh(state);
+  // dostupná energie (Wh) podle identity (minSoC, efficiency)
+  const availWh = getAvailableWh(state, identity);
+
+  // výdrž při aktuálním net (jen když net < 0)
   const hoursLeftNet = (netW < 0 && availWh !== null) ? hoursFromWh(availWh, netW) : null;
 
-  // výdrž na baterii (vždy) = při současné zátěži, solár 0
-  const hoursLeftBattery = (availWh !== null) ? hoursFromWh(availWh, loadW) : null;
+  // výdrž baterie při aktuální zátěži (vždy)
+  const hoursLeftBatteryNow = (availWh !== null) ? hoursFromWh(availWh, loadW) : null;
+
+  // B 3.15: výdrže podle režimů (identity load profily)
+  const hoursLeftBatterySaving = (availWh !== null) ? hoursFromWh(availWh, identity.loadSavingW) : null;
+  const hoursLeftBatteryHibernate = (availWh !== null) ? hoursFromWh(availWh, identity.loadHibernateW) : null;
 
   // časy do svítání / západu
   const toSunriseH = msToNextSunrise(tNow, SUNRISE_H, 0) / (1000 * 60 * 60);
   const toSunsetH = msToNextSunset(tNow, SUNSET_H, 0) / (1000 * 60 * 60);
 
-  // --- B 3.13: plán do svítání ---
-  const sunrise = sunrisePlan(state, model, loadW, isDay, tNow);
+  // B 3.13: plán do svítání — ale použijeme load podle toho, jaký režim plánujeme
+  // Pro predikci přežití bereme "aktuální load", ale pokud už savingMode běží, ber saving load.
+  const effectiveLoadForPlan = safeGet(state, "device.savingMode", false) ? identity.loadSavingW : loadW;
+  const sunrise = sunrisePlan(availWh, model, effectiveLoadForPlan, isDay, tNow);
 
-  // základní state
+  // klasifikace
   let energyState = classifyEnergyState({ netW, socPct, hoursLeftNet }, isDay, model);
 
-  // B 3.13: Pokud je noc a plán říká "nepřežiju do svítání", přepni do tvrdého rizika
   const sunriseHardRisk = (sunrise.isCriticalWindow && sunrise.willSurvive === false);
-
-  // a pokud je noc a buffer je velmi malý (těsně), aspoň soft boost
   const sunriseSoftRisk =
     sunrise.isCriticalWindow &&
     sunrise.willSurvive !== null &&
@@ -580,12 +650,9 @@ export function decide(state) {
     sunrise.bufferWh !== null &&
     sunrise.bufferWh < num(model.sunriseSafetyMarginWh, 0.8) * 0.6;
 
-  // posuň energetický stav podle plánu do svítání (jen v noci)
   if (sunriseHardRisk) {
-    // tvrdá priorita – musí šetřit
     energyState = "CRITICAL";
   } else if (sunriseSoftRisk) {
-    // měkké: aspoň DRAINING_RISK, pokud není lepší
     if (energyState === "DRAINING_SAFE" || energyState === "BALANCED" || energyState === "POSITIVE") {
       energyState = "DRAINING_RISK";
     }
@@ -600,9 +667,8 @@ export function decide(state) {
 
   setDeviceDirectives(state, samplingMode, energyState, sunriseHardRisk);
 
-  // fan (šetření při sunriseHardRisk)
+  // fan rozhodnutí (po setDeviceDirectives)
   const fanDecision = decideFan(state, energyState, socPct, sunriseHardRisk);
-  if (!state.device) state.device = {};
   state.device.fan = fanDecision.fan;
 
   // message
@@ -610,19 +676,27 @@ export function decide(state) {
 
   // details (UI)
   state.details.push(`SOC: ${socPct === null ? "—" : fmt(socPct, 0) + " %"} (trend ${socTrendPH === null ? "—" : fmt(socTrendPH, 2) + " %/h"})`);
-  state.details.push(`Světlo: ${fmt(safeGet(state, "world.environment.light", safeGet(state, "environment.light", 0)), 0)} lx`);
-  state.details.push(`Solár: ${fmt(solarW, 3)} W`);
-  state.details.push(`Zátěž: ${fmt(loadW, 3)} W`);
-  state.details.push(`Net: ${fmt(netW, 2)} W`);
+  state.details.push(`Solár: ${fmt(solarW, 3)} W • Zátěž: ${fmt(loadW, 3)} W • Net: ${fmt(netW, 2)} W`);
 
-  // Výdrž na baterii vždy
-  state.details.push(`Výdrž na baterii ~ ${hoursLeftBattery === null ? "—" : fmt(hoursLeftBattery, 2) + " h"} (při zátěži ${fmt(loadW, 3)} W)`);
+  // B 3.15 identita (viditelně)
+  state.details.push(`Profil zařízení: baterie ${fmt(identity.batteryCapacityWh, 2)} Wh (min SOC ${fmt(identity.batteryMinSocPct, 0)}%) • panel max ~${fmt(identity.panelMaxW, 2)} W • účinnost ${fmt(identity.systemEfficiency, 2)}`);
 
-  if (hoursLeftNet !== null && hoursLeftNet !== undefined) {
-    state.details.push(`Výdrž při aktuálním net ~ ${fmt(hoursLeftNet, 2)} h (bez zisku)`);
+  if (identity.learned.loadBaseEmaW !== null) {
+    state.details.push(`Kalibrace: baseline load ~${fmt(identity.learned.loadBaseEmaW, 3)} W (n=${identity.learned.loadBaseN || 0})`);
+  }
+  if (identity.learned.panelPeakEmaW !== null) {
+    state.details.push(`Kalibrace: peak solár ~${fmt(identity.learned.panelPeakEmaW, 3)} W (n=${identity.learned.panelPeakN || 0})`);
   }
 
-  // B 3.14: solar predikce + confidence
+  // Výdrž baterie (vždy) + režimy
+  state.details.push(`Výdrž baterie (teď) ~ ${hoursLeftBatteryNow === null ? "—" : fmt(hoursLeftBatteryNow, 2)} h`);
+  state.details.push(`Výdrž baterie (šetření) ~ ${hoursLeftBatterySaving === null ? "—" : fmt(hoursLeftBatterySaving, 2)} h • (hibernace) ~ ${hoursLeftBatteryHibernate === null ? "—" : fmt(hoursLeftBatteryHibernate, 2)} h`);
+
+  if (hoursLeftNet !== null && hoursLeftNet !== undefined) {
+    state.details.push(`Výdrž při aktuálním net (bez zisku) ~ ${fmt(hoursLeftNet, 2)} h`);
+  }
+
+  // solární predikce + confidence
   if (p.hour >= SUNSET_H) {
     state.details.push(`Dnes už solár: 0 Wh (po západu)`);
   } else if (p.hour < SUNRISE_H) {
@@ -634,13 +708,11 @@ export function decide(state) {
     state.details.push(`Do západu ~ ${fmt(toSunsetH, 2)} h`);
   }
 
-  // B 3.13: plán do svítání (jen nocí relevantní, ale ukazujeme vždy)
+  // plán do svítání
   state.details.push(`Do svítání ~ ${fmt(sunrise.toSunriseH, 2)} h`);
-  state.details.push(`Energie do svítání: potřeba ~ ${fmt(sunrise.neededWh, 2)} Wh + rezerva ${fmt(sunrise.marginWh, 2)} Wh`);
-  state.details.push(`Energie k dispozici: ${sunrise.availWh === null ? "—" : fmt(sunrise.availWh, 2) + " Wh"} • plán: ${sunrise.willSurvive === null ? "—" : (sunrise.willSurvive ? "OK" : "RIZIKO")}`);
+  state.details.push(`Plán do svítání: potřeba ~${fmt(sunrise.neededWh, 2)} Wh + rezerva ${fmt(sunrise.marginWh, 2)} Wh • k dispozici ${sunrise.availWh === null ? "—" : fmt(sunrise.availWh, 2)} Wh • výsledek: ${sunrise.willSurvive === null ? "—" : (sunrise.willSurvive ? "OK" : "RIZIKO")}`);
 
-  state.details.push(`Režim sběru: ${samplingMode} (interval ~${state.device.collectionIntervalSec}s)`);
-  state.details.push(`Šetření: ${state.device.savingMode ? "ANO" : "NE"}`);
+  state.details.push(`Režim sběru: ${samplingMode} (interval ~${state.device.collectionIntervalSec}s) • Šetření: ${state.device.savingMode ? "ANO" : "NE"}`);
   state.details.push(`Větrák: ${state.device.fan ? "ZAP" : "VYP"} (${fanDecision.reason})`);
   state.details.push(`Noční rezerva cílově ≥ ${fmt(model.nightReservePct, 0)} % (konzervativnost x${fmt(model.conservativeness, 2)})`);
 
@@ -659,11 +731,10 @@ export function decide(state) {
     });
   }
 
-  // log rizik
   if (sunriseHardRisk) {
     rememberExperience(state, "sunrise_risk_hard", {
       socPct,
-      loadW,
+      loadW: effectiveLoadForPlan,
       toSunriseH: sunrise.toSunriseH,
       availWh: sunrise.availWh,
       targetWh: sunrise.targetWh,
@@ -672,7 +743,7 @@ export function decide(state) {
   } else if (sunriseSoftRisk) {
     rememberExperience(state, "sunrise_risk_soft", {
       socPct,
-      loadW,
+      loadW: effectiveLoadForPlan,
       toSunriseH: sunrise.toSunriseH,
       availWh: sunrise.availWh,
       bufferWh: sunrise.bufferWh
@@ -700,22 +771,37 @@ export function decide(state) {
   state.prediction.netW = netW;
   state.prediction.expectedSolarWh = expectedSolarWh;
 
-  // hoursLeft = bez zisku (jen pokud net < 0)
+  // bez zisku (jen pokud net < 0)
   state.prediction.hoursLeft = (netW < 0 && hoursLeftNet !== null) ? hoursLeftNet : null;
 
-  // vždy: výdrž baterie v hodinách
-  state.prediction.hoursLeftBattery = hoursLeftBattery;
+  // vždy: výdrž baterie
+  state.prediction.hoursLeftBattery = hoursLeftBatteryNow;
 
-  // B 3.13: predikce do svítání
+  // B 3.15: výdrže v režimech
+  state.prediction.hoursLeftBatterySaving = hoursLeftBatterySaving;
+  state.prediction.hoursLeftBatteryHibernate = hoursLeftBatteryHibernate;
+
+  // do svítání
   state.prediction.toSunriseH = sunrise.toSunriseH;
   state.prediction.sunriseWillSurvive = sunrise.willSurvive;
   state.prediction.sunriseDeficitWh = sunrise.deficitWh;
 
-  // B 3.14: info o profilu
+  // profil
   state.prediction.solarProfile = {
     month,
     used: useMonth ? "month" : "global",
     confidenceMonth: confMonth,
     confidenceGlobal: confGlobal
+  };
+
+  // identita (pro debug / budoucí UI)
+  state.prediction.identity = {
+    batteryCapacityWh: identity.batteryCapacityWh,
+    panelMaxW: identity.panelMaxW,
+    loadNormalW: identity.loadNormalW,
+    loadSavingW: identity.loadSavingW,
+    loadHibernateW: identity.loadHibernateW,
+    systemEfficiency: identity.systemEfficiency,
+    learned: identity.learned
   };
 }
