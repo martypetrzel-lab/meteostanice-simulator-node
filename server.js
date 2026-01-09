@@ -17,36 +17,38 @@ const state = JSON.parse(fs.readFileSync(statePath, "utf-8"));
 const app = express();
 app.use(cors());
 
-// --- REAL TIME SYNC ---
+// --- REAL TIME CLOCK ---
+// držíme sim čas = reálný čas, ale zachováme state strukturu
 let lastReal = Date.now();
-
-// pokud v state.json chybí time, dorobíme
 if (!state.time) state.time = {};
 state.time.now = Date.now();
 
-// hlavní smyčka: sim čas = reálný čas
 setInterval(() => {
   const now = Date.now();
   const dtMs = now - lastReal;
   lastReal = now;
 
-  state.time.now = now;      // ✅ sim čas = realita
-  tick(state, dtMs);         // dtMs pro případné budoucí modely
-}, 1000);
+  // sim čas = real time
+  state.time.now = now;
 
-app.get("/health", (req, res) => {
-  res.json({
-    ok: true,
-    now: Date.now(),
-    version: "B 3.8 (real-time sync)"
-  });
-});
+  // tick dostane dt (užitečné pro integrace)
+  tick(state, dtMs);
+}, 1000);
 
 app.get("/state", (req, res) => {
   res.json(state);
 });
 
+// volitelný health endpoint (hodí se pro UI test)
+app.get("/health", (req, res) => {
+  res.json({
+    ok: true,
+    version: "B3.16-world",
+    now: Date.now()
+  });
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log("EIRA B 3.8 běží (real-time synced)");
+  console.log("EIRA B3.16-world běží (real time + 21-day cycle world)");
 });

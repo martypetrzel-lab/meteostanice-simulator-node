@@ -8,5 +8,5 @@ export function tick(state, dtMs = 1000) {
   worldTick(state, dtMs);
   deviceTick(state, dtMs);
   memoryTick(state, dtMs);
-  decide(state, dtMs);
+  decide(state);
 }
