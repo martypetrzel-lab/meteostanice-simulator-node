@@ -5,6 +5,9 @@
 
 const TZ = "Europe/Prague";
 
+// Kolik dní historie držet v paměti (aby /state nerostl do nekonečna)
+const MAX_DAYS = 30;
+
 /** YYYY-MM-DD podle Europe/Prague */
 function todayKeyPrague(ts) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -14,17 +17,16 @@ function todayKeyPrague(ts) {
     day: "2-digit"
   }).formatToParts(new Date(ts));
 
-  const map = {};
-  for (const p of parts) {
-    if (p.type !== "literal") map[p.type] = p.value;
-  }
-
-  return `${map.year}-${map.month}-${map.day}`;
+  const get = (type) => parts.find(p => p.type === type)?.value;
+  const y = get("year");
+  const m = get("month");
+  const d = get("day");
+  return `${y}-${m}-${d}`;
 }
 
-/** HH:MM:SS podle Europe/Prague */
 function timeLabelPrague(ts) {
   try {
+    // HH:MM:SS v Praze
     return new Intl.DateTimeFormat("cs-CZ", {
       timeZone: TZ,
       hour: "2-digit",
@@ -63,7 +65,8 @@ export function initMemory(state) {
 
   const key = todayKeyPrague(state.time?.now ?? Date.now());
 
-  if (!state.memory.today) {
+  if (!state.memory.today || state.memory.today.key !== key) {
+    // pokud je to první start, nebo reset klíče, inicializujeme
     state.memory.today = {
       key,
       temperature: [],
@@ -74,17 +77,9 @@ export function initMemory(state) {
     };
   }
 
-  if (!state.memory.today.totals) {
-    state.memory.today.totals = { energyInWh: 0, energyOutWh: 0 };
+  if (!Array.isArray(state.memory.days)) {
+    state.memory.days = [];
   }
-
-  if (state.memory.today._lastSampleTs === undefined) {
-    state.memory.today._lastSampleTs = null;
-  }
-
-  if (!state.memory.days) state.memory.days = [];
-  if (!state.memory.experiences) state.memory.experiences = {};
-  if (!state.meta) state.meta = {};
 }
 
 function rolloverDayIfNeeded(state) {
@@ -103,6 +98,11 @@ function rolloverDayIfNeeded(state) {
       totals: state.memory.today.totals
     });
 
+    // limit historie
+    if (state.memory.days.length > MAX_DAYS) {
+      state.memory.days.splice(0, state.memory.days.length - MAX_DAYS);
+    }
+
     // a začneme nový den
     state.memory.today = {
       key: nowKey,
@@ -118,76 +118,44 @@ function rolloverDayIfNeeded(state) {
 /**
  * memoryTick
  * - loguje vzorky pro grafy podle collectionIntervalSec (mozek)
- * - dtMs je volitelný (nepovinný); hlavní je reálný čas v state.time.now
+ * - dtMs je volitelný (nepovinný); hlavní je state.time.now
  */
 export function memoryTick(state, dtMs = 1000) {
+  initMemory(state);
   rolloverDayIfNeeded(state);
 
   const now = state.time?.now ?? Date.now();
-  const intervalSec = Math.max(1, Math.round(num(safeGet(state, "device.collectionIntervalSec", 10), 10)));
+  const today = state.memory.today;
+
+  // interval sběru dat rozhoduje mozek (fallback 30s)
+  const intervalSec = Math.max(1, num(safeGet(state, "device.power.collectionIntervalSec", 30), 30));
   const intervalMs = intervalSec * 1000;
 
-  const lastTs = state.memory.today._lastSampleTs;
+  // ulož jen pokud uběhl interval
+  if (today._lastSampleTs && now - today._lastSampleTs < intervalMs) return;
+  today._lastSampleTs = now;
 
-  // ještě nemáme první vzorek -> udělej okamžitě
-  const shouldSample = (lastTs === null) || (now - lastTs >= intervalMs);
+  // teplota: preferujeme world.environment.airTempC, fallback device.temperature
+  const tempC =
+    num(safeGet(state, "world.environment.airTempC", NaN), NaN) ??
+    num(safeGet(state, "device.temperature", NaN), NaN);
 
-  if (!shouldSample) return;
-
-  const label = timeLabelPrague(now);
-
-  // zdroje dat (robustní cesty)
-  const tempC = num(
-    safeGet(state, "world.environment.temperature",
-      safeGet(state, "environment.temperature",
-        safeGet(state, "device.temperature", 0)
-      )
-    ),
-    0
-  );
-
-  const solarW = num(
-    safeGet(state, "device.solarInW",
-      safeGet(state, "device.power.solarInW", 0)
-    ),
-    0
-  );
-
-  const loadW = num(
-    safeGet(state, "device.loadW",
-      safeGet(state, "device.power.loadW", 0)
-    ),
-    0
-  );
-
-  // === záznam bodů pro grafy ===
-  pushPoint(state.memory.today.temperature, { t: label, v: tempC });
-  pushPoint(state.memory.today.energyIn, { t: label, v: solarW });
-  pushPoint(state.memory.today.energyOut, { t: label, v: loadW });
-
-  // === výpočet Wh (integrace výkonu mezi vzorky) ===
-  if (lastTs !== null) {
-    const dHours = (now - lastTs) / (1000 * 60 * 60);
-    // jednoduchý obdélník (stačí pro simulátor)
-    state.memory.today.totals.energyInWh += solarW * dHours;
-    state.memory.today.totals.energyOutWh += loadW * dHours;
+  if (Number.isFinite(tempC)) {
+    pushPoint(today.temperature, { t: timeLabelPrague(now), v: Math.round(tempC * 100) / 100 }, 2500);
   }
 
-  state.memory.today._lastSampleTs = now;
-}
+  // energie: W -> Wh přírůstky přes interval
+  const solarInW = num(safeGet(state, "device.power.solarInW", 0), 0);
+  const loadW = num(safeGet(state, "device.power.loadW", 0), 0);
 
-export function rememberExperience(state, type, data = {}) {
-  initMemory(state);
+  // Wh za interval
+  const inWh = solarInW * (intervalSec / 3600);
+  const outWh = loadW * (intervalSec / 3600);
 
-  if (!state.memory.experiences[type]) {
-    state.memory.experiences[type] = [];
-  }
+  today.totals.energyInWh += inWh;
+  today.totals.energyOutWh += outWh;
 
-  state.memory.experiences[type].push({
-    time: state.time?.now ?? Date.now(),
-    ...data
-  });
-
-  state.meta.lastExperience = type;
-  state.meta.learned = true;
+  // grafy si drží průběh výkonu (W) v čase
+  pushPoint(today.energyIn, { t: timeLabelPrague(now), v: Math.round(solarInW * 1000) / 1000 }, 2500);
+  pushPoint(today.energyOut, { t: timeLabelPrague(now), v: Math.round(loadW * 1000) / 1000 }, 2500);
 }

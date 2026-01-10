@@ -1,193 +1,88 @@
-// B 3.28 — oprava dne dle Europe/Prague (půlnoc), aby grafy seděly na reálný čas
-// - dayKey počítáme přes Intl v Europe/Prague (NE přes toISOString UTC)
-// - při změně dne: rollover memory.today -> memory.days + založení nového today
-// - logování časů (t) je HH:MM:SS v Europe/Prague
-
+// server.js
 import express from "express";
+import cors from "cors";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import { tickBrain } from "./brain.js"; // očekává objekt state, vrací (nebo mutuje) state
+import { tick } from "./simulator.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
-app.use(express.json());
+// bezpečné načtení state.json
+const statePath = path.join(__dirname, "state.json");
+const state = JSON.parse(fs.readFileSync(statePath, "utf-8"));
 
-// ✅ FIX: neotravuj konzoli 404 pro favicon
-app.get("/favicon.ico", (req, res) => {
-  res.status(204).end();
-});
-
-// ====== TIME HELPERS (Europe/Prague) ======
-const TZ = "Europe/Prague";
-
-function getPragueParts(ms) {
-  // robustně vytáhne YYYY-MM-DD + HH:MM:SS v Europe/Prague
-  const dtf = new Intl.DateTimeFormat("en-GB", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-
-  // formatToParts je nejbezpečnější
-  const parts = dtf.formatToParts(new Date(ms));
-  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-
-  const y = map.year;
-  const m = map.month;
-  const d = map.day;
-  const hh = map.hour;
-  const mm = map.minute;
-  const ss = map.second;
-
-  return {
-    dayKey: `${y}-${m}-${d}`,
-    hms: `${hh}:${mm}:${ss}`,
-    hm: `${hh}:${mm}`,
-    hour: Number(hh),
+// Vrátí zmenšený state pro UI (nižší payload)
+function compactState(state) {
+  // shallow copy top-level
+  const out = {
+    time: state.time,
+    world: state.world,
+    device: state.device,
+    memory: state.memory,
+    message: state.message
   };
+
+  // omez body v `today` (už je limitované v memory.js, ale UI někdy chce ještě méně)
+  const maxTodayPoints = 1440; // cca 24h při 1/min
+  const t = out.memory?.today;
+  if (t) {
+    const cap = (arr) =>
+      (Array.isArray(arr) && arr.length > maxTodayPoints)
+        ? arr.slice(-maxTodayPoints)
+        : arr;
+
+    t.temperature = cap(t.temperature);
+    t.energyIn = cap(t.energyIn);
+    t.energyOut = cap(t.energyOut);
+  }
+  return out;
 }
 
-// ====== STATE ======
-const state = {
-  time: {
-    now: Date.now(), // ms epoch (sim/real sync)
-    isDay: true,
-  },
-  world: {
-    environment: {
-      temperature: 15,
-      light: 300,
-    },
-    time: {
-      now: Date.now(),
-      isDay: true,
-    },
-  },
-  device: {
-    temperature: 15,
-    humidity: 50,
-    light: 300,
-    battery: null,
-    power: {
-      solarInW: 0,
-      loadW: 0,
-      balanceWh: 0,
-    },
-    fan: false,
-  },
-  memory: {
-    today: {
-      key: getPragueParts(Date.now()).dayKey,
-      temperature: [],
-      energyIn: [],
-      energyOut: [],
-    },
-    days: [],
-  },
-};
+const app = express();
+app.use(cors());
 
-// ====== MEMORY ROLLOVER ======
-function ensureTodayRoll(stateObj) {
-  const nowMs = stateObj.time?.now ?? Date.now();
-  const { dayKey } = getPragueParts(nowMs);
-
-  if (!stateObj.memory) stateObj.memory = {};
-  if (!stateObj.memory.today) {
-    stateObj.memory.today = { key: dayKey, temperature: [], energyIn: [], energyOut: [] };
-    if (!stateObj.memory.days) stateObj.memory.days = [];
-    return;
-  }
-
-  const currentKey = stateObj.memory.today.key;
-  if (currentKey !== dayKey) {
-    // ulož včerejšek do days (max třeba 30 dní)
-    stateObj.memory.days = stateObj.memory.days || [];
-    stateObj.memory.days.unshift(stateObj.memory.today);
-
-    // omez velikost historie
-    const MAX_DAYS = 60;
-    if (stateObj.memory.days.length > MAX_DAYS) stateObj.memory.days.length = MAX_DAYS;
-
-    // založ nový dnešní den
-    stateObj.memory.today = {
-      key: dayKey,
-      temperature: [],
-      energyIn: [],
-      energyOut: [],
-    };
-  }
-}
-
-// ====== LOGGING HELPERS ======
-function pushPoint(arr, point, maxLen = 2000) {
-  arr.push(point);
-  if (arr.length > maxLen) arr.splice(0, arr.length - maxLen);
-}
-
-function logTelemetry(stateObj) {
-  const nowMs = stateObj.time?.now ?? Date.now();
-  const { hms } = getPragueParts(nowMs);
-
-  // teplota
-  if (typeof stateObj.device?.temperature === "number") {
-    pushPoint(stateObj.memory.today.temperature, { t: hms, v: Number(stateObj.device.temperature.toFixed(2)) }, 3000);
-  }
-
-  // energie in/out (pokud existuje)
-  const solarW = stateObj.device?.power?.solarInW;
-  const loadW = stateObj.device?.power?.loadW;
-
-  if (typeof solarW === "number") {
-    pushPoint(stateObj.memory.today.energyIn, { t: hms, v: Number(solarW.toFixed(3)) }, 3000);
-  }
-  if (typeof loadW === "number") {
-    pushPoint(stateObj.memory.today.energyOut, { t: hms, v: Number(loadW.toFixed(3)) }, 3000);
-  }
-}
-
-// ====== MAIN LOOP ======
-const TICK_MS = 5000;
+// --- REAL TIME CLOCK ---
+// držíme sim čas = reálný čas, ale zachováme state strukturu
+let lastReal = Date.now();
+if (!state.time) state.time = {};
+state.time.now = Date.now();
 
 setInterval(() => {
-  // reálný sync (B 3.28): držíme state.time.now = Date.now()
-  state.time.now = Date.now();
-  state.world.time.now = state.time.now;
+  const now = Date.now();
+  const dtMs = now - lastReal;
+  lastReal = now;
 
-  // nastav den/noc (jednoduše podle hodiny v Praze)
-  const { hour } = getPragueParts(state.time.now);
-  const isDay = hour >= 7 && hour < 19;
-  state.time.isDay = isDay;
-  state.world.time.isDay = isDay;
+  // sim čas = real time
+  state.time.now = now;
 
-  ensureTodayRoll(state);
+  // tick dostane dt (užitečné pro integrace)
+  tick(state, dtMs);
+}, 1000);
 
-  // rozhodování mozku (pokud je)
-  try {
-    tickBrain(state);
-  } catch (e) {
-    // nechceme shodit server
-    console.error("[brain] tick error:", e?.message || e);
-  }
-
-  // logy do grafů
-  logTelemetry(state);
-}, TICK_MS);
-
-// ====== API ======
 app.get("/state", (req, res) => {
-  res.json(state);
+  // Basic cache control: vždy fresh
+  res.setHeader("Cache-Control", "no-store");
+
+  const compact = String(req.query.compact || "").toLowerCase();
+  if (compact === "1" || compact === "true" || compact === "yes") {
+    return res.json(compactState(state));
+  }
+  return res.json(state);
 });
 
-// ====== STATIC ======
-app.use("/", express.static(path.join(__dirname, "public")));
+// volitelný health endpoint (hodí se pro UI test)
+app.get("/health", (req, res) => {
+  res.json({
+    ok: true,
+    version: "B3.16-world",
+    now: Date.now()
+  });
+});
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`[ok] server listening on :${PORT}`));
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log("EIRA B3.16-world běží (real time + 21-day cycle world)");
+});
