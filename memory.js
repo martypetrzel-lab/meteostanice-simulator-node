@@ -182,12 +182,29 @@ export function memoryTick(state, dtMs = 1000) {
   const solarInW = num(safeGet(state, "device.power.solarInW", 0), 0);
   const loadW = num(safeGet(state, "device.power.loadW", 0), 0);
 
-  const inWh = solarInW * (intervalSec / 3600);
-  const outWh = loadW * (intervalSec / 3600);
+  // Preferujeme přesnější integraci z T 3.33.0 (energy.js).
+  const whInToday = num(safeGet(state, "energy.totals.wh_in_today", NaN), NaN);
+  const whOutToday = num(safeGet(state, "energy.totals.wh_out_today", NaN), NaN);
+  if (Number.isFinite(whInToday) && Number.isFinite(whOutToday)) {
+    today.totals.energyInWh = whInToday;
+    today.totals.energyOutWh = whOutToday;
+  } else {
+    // fallback (starší model)
+    const inWh = solarInW * (intervalSec / 3600);
+    const outWh = loadW * (intervalSec / 3600);
+    today.totals.energyInWh += inWh;
+    today.totals.energyOutWh += outWh;
+  }
 
-  today.totals.energyInWh += inWh;
-  today.totals.energyOutWh += outWh;
-
-  pushPoint(today.energyIn, { t: timeLabelPrague(now), v: Math.round(solarInW * 1000) / 1000 }, 2500);
-  pushPoint(today.energyOut, { t: timeLabelPrague(now), v: Math.round(loadW * 1000) / 1000 }, 2500);
+  // W grafy: preferujeme INA p_raw (T 3.33.0), fallback na device.power.
+  const pInW = num(safeGet(state, "energy.ina_in.p_raw", NaN), NaN);
+  const pOutW = num(safeGet(state, "energy.ina_out.p_raw", NaN), NaN);
+  pushPoint(today.energyIn, {
+    t: timeLabelPrague(now),
+    v: Math.round((Number.isFinite(pInW) ? pInW : solarInW) * 1000) / 1000,
+  }, 2500);
+  pushPoint(today.energyOut, {
+    t: timeLabelPrague(now),
+    v: Math.round((Number.isFinite(pOutW) ? pOutW : loadW) * 1000) / 1000,
+  }, 2500);
 }

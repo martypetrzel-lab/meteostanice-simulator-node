@@ -10,14 +10,15 @@ function num(x, fallback = 0) {
 /**
  * device.js – HW-realistic power model defaults
  *
- * HW:
- * - Solární panel 5V/3W  -> max ~3.0 W (Voc 6.1V, Isc 665mA)
+ * B 3.32.0 (připraveno na budoucí HW):
+ * - Solární panel 5V/3W (Voc 6.1V, Isc 665mA)  -> max ~3.0 W
  * - 1× NCR18650B 3350 mAh -> ~9.9 Wh použitelně (80%)
- * - Větrák 5V/200mA      -> 1.0 W na 5V větvi
- * - Step-up MT3608       -> účinnost ~85% + vlastní spotřeba
- * - 2× INA219 (příjem/spotřeba) – připravený datový model
+ * - 2× INA219 (příjem/spotřeba) – simuluje se z výkonů
+ * - SHT40 (vnitřní T+RH) + DS18B20 (venkovní T)
+ *
+ * Pozn.: Hardware nikdy „nerozmýšlí“. Tohle je jen fyzikální / senzorová vrstva.
  */
-export function deviceTick(state) {
+export function deviceTick(state, dtMs = 1000) {
   if (!state.device) state.device = {};
   if (!state.device.config) state.device.config = {};
   if (!state.device.identity) state.device.identity = {};
@@ -47,7 +48,7 @@ export function deviceTick(state) {
 
   const batteryWh = Number.isFinite(batteryWhExplicit)
     ? batteryWhExplicit
-    : (batteryMah / 1000) * batteryNomV * batteryUsableFactor; // ~9.9 Wh (NCR18650B 3350mAh @ 80%)
+    : (batteryMah / 1000) * batteryNomV * batteryUsableFactor; // ~9.9 Wh
 
   if (!state.device.battery) {
     state.device.battery = { voltage: 3.84, soc: 0.6 };
@@ -72,7 +73,8 @@ export function deviceTick(state) {
   const loadW_raw = baseLoadW + fanBatteryW;
 
   const netW = solarInW_raw - loadW_raw;
-  const deltaWh = netW / 3600;
+  const dtSec = Math.max(0, num(dtMs, 1000)) / 1000;
+  const deltaWh = (netW * dtSec) / 3600;
 
   const solarInW = Number(solarInW_raw.toFixed(3));
   const loadW = Number(loadW_raw.toFixed(3));
@@ -81,12 +83,12 @@ export function deviceTick(state) {
   state.device.power.loadW = loadW;
   state.device.power.balanceWh = Number((num(state.device.power.balanceWh, 0) + deltaWh).toFixed(6));
 
-  // SOC update
+  // SOC update (fyzika baterie – jednoduchý integrátor; interpretace SoC řeší T 3.33.0 v energy.js)
   const deltaSoc = deltaWh / Math.max(0.1, batteryWh);
   state.device.battery.soc = clamp(num(state.device.battery.soc, 0.6) + deltaSoc, 0, 1);
   state.device.battery.voltage = Number((3.0 + state.device.battery.soc * 1.2).toFixed(2));
 
-  // UI + brain inputs
+  // UI + brain inputs (kompatibilita)
   state.device.battery.percent = Math.round(state.device.battery.soc * 100);
   state.device.battery.capacityWh = Number(batteryWh.toFixed(3));
   state.device.battery.remainingWh = Number((state.device.battery.soc * batteryWh).toFixed(3));
@@ -100,9 +102,8 @@ export function deviceTick(state) {
   // =============================
   // Sensor model (future HW ready)
   // =============================
-  // SHT40 = vnitřní teplota + vlhkost (box)
+  // SHT40 = vnitřní teplota + vlhkost
   // DS18B20 = venkovní teplota
-  // Pozn.: svět NIKDY nereaguje na mozek, tady jen mapujeme hodnoty do „senzorů“.
   const airTempC = num(env.airTempC, num(env.temperature, 0));
   const boxTempC = num(env.boxTempC, airTempC);
   const humidity = num(state.device.humidity, num(env.humidity, 50));
@@ -118,31 +119,31 @@ export function deviceTick(state) {
   // =============================
   // INA219 (2×): solar in / load out
   // =============================
-  // Vstupní větev: panel -> nabíjení (cca 5V, no-load se blíží Voc)
+  // Vstupní větev (panel -> nabíjení)
   const dayFactor = clamp(irr / 1000, 0, 1);
   const inV = solarInW_raw > 0.02
     ? clamp(5.0 + (1 - dayFactor) * 1.1, 4.8, panelVocV)
     : 0;
   const inA = inV > 0 ? (solarInW_raw / inV) : 0;
 
-  // Výstupní větev: baterie -> zátěž
+  // Výstupní větev (baterie -> zátěž)
   const batV = num(state.device.battery.voltage, 3.7);
   const outA = batV > 0 ? (loadW_raw / batV) : 0;
 
   state.device.sensors.ina219 = {
-    solarIn: {
+    ina_in: {
       voltageV: Number(inV.toFixed(3)),
       currentA: Number(inA.toFixed(3)),
       powerW: Number(solarInW_raw.toFixed(3))
     },
-    loadOut: {
+    ina_out: {
       voltageV: Number(batV.toFixed(3)),
       currentA: Number(outA.toFixed(3)),
       powerW: Number(loadW_raw.toFixed(3))
     }
   };
 
-  // Sensors mirrors
+  // Sensors mirrors (kompatibilita)
   const t = env.temperature ?? 0;
   state.device.temperature = Number(num(t, 0).toFixed(2));
   if (state.device.humidity === undefined || state.device.humidity === null) state.device.humidity = 50;
