@@ -15,12 +15,13 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json());
 
+// ✅ FIX: neotravuj konzoli 404 pro favicon
+app.get("/favicon.ico", (req, res) => {
+  res.status(204).end();
+});
+
 // ====== TIME HELPERS (Europe/Prague) ======
 const TZ = "Europe/Prague";
-
-function pad2(n) {
-  return String(n).padStart(2, "0");
-}
 
 function getPragueParts(ms) {
   // robustně vytáhne YYYY-MM-DD + HH:MM:SS v Europe/Prague
@@ -39,7 +40,6 @@ function getPragueParts(ms) {
   const parts = dtf.formatToParts(new Date(ms));
   const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
 
-  // en-GB dává day/month/year, ale přes parts máme vše zvlášť
   const y = map.year;
   const m = map.month;
   const d = map.day;
