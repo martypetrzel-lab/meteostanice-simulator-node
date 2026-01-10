@@ -22,7 +22,9 @@ function num(x, fallback = 0) {
 const worldSim = new WorldSim({
   seed: "T 3.31.0",
   latDeg: 50.0755, // Praha
-  panelWp: 1.0     // 5V/1W => 1.0 Wp normalizace
+  // B 3.32.0 – připraveno na HW:
+  // Solární panel 5V/3W (Voc 6.1V, Isc 665mA)
+  panelWp: 3.0
 });
 
 function safeInitWorld(state) {

@@ -11,23 +11,29 @@ function num(x, fallback = 0) {
  * device.js – HW-realistic power model defaults
  *
  * HW:
- * - Solární panel 5V/1W  -> max ~1.0 W
- * - 1× 18650 2200 mAh    -> ~6.5 Wh použitelně (80%)
+ * - Solární panel 5V/3W  -> max ~3.0 W (Voc 6.1V, Isc 665mA)
+ * - 1× NCR18650B 3350 mAh -> ~9.9 Wh použitelně (80%)
  * - Větrák 5V/200mA      -> 1.0 W na 5V větvi
  * - Step-up MT3608       -> účinnost ~85% + vlastní spotřeba
+ * - 2× INA219 (příjem/spotřeba) – připravený datový model
  */
 export function deviceTick(state) {
   if (!state.device) state.device = {};
   if (!state.device.config) state.device.config = {};
   if (!state.device.identity) state.device.identity = {};
+  if (!state.device.sensors) state.device.sensors = {};
   if (!state.world) state.world = {};
   if (!state.world.environment) state.world.environment = { temperature: 15, light: 0 };
 
   const cfg = state.device.config;
 
-  const panelMaxW = num(cfg.panelMaxW, 1.0);
+  // === panel ===
+  const panelMaxW = num(cfg.panelMaxW, 3.0);
   const panelEff = num(cfg.panelEff, 0.75);
+  const panelVocV = num(cfg.panelVocV, 6.1);
+  const panelIscA = num(cfg.panelIscA, 0.665);
 
+  // === battery ===
   const baseLoadW = num(cfg.baseLoadW, 0.18);
 
   const fanOutW = num(cfg.fanOutW, 1.0); // 5V * 0.2A = 1.0 W
@@ -35,13 +41,13 @@ export function deviceTick(state) {
   const stepUpIqW = num(cfg.stepUpIqW, 0.05);
 
   const batteryWhExplicit = num(cfg.batteryWh, NaN);
-  const batteryMah = num(cfg.batteryMah, 2200);
+  const batteryMah = num(cfg.batteryMah, 3350);
   const batteryNomV = num(cfg.batteryNomV, 3.7);
   const batteryUsableFactor = clamp(num(cfg.batteryUsableFactor, 0.8), 0.3, 0.95);
 
   const batteryWh = Number.isFinite(batteryWhExplicit)
     ? batteryWhExplicit
-    : (batteryMah / 1000) * batteryNomV * batteryUsableFactor; // ~6.5 Wh
+    : (batteryMah / 1000) * batteryNomV * batteryUsableFactor; // ~9.9 Wh (NCR18650B 3350mAh @ 80%)
 
   if (!state.device.battery) {
     state.device.battery = { voltage: 3.84, soc: 0.6 };
@@ -88,6 +94,53 @@ export function deviceTick(state) {
   // legacy identity (aby to bylo konzistentní i pro starší části)
   state.device.identity.batteryWh = Number(batteryWh.toFixed(3));
   state.device.identity.panelMaxW = Number(panelMaxW.toFixed(3));
+  state.device.identity.panelVocV = Number(panelVocV.toFixed(3));
+  state.device.identity.panelIscA = Number(panelIscA.toFixed(3));
+
+  // =============================
+  // Sensor model (future HW ready)
+  // =============================
+  // SHT40 = vnitřní teplota + vlhkost (box)
+  // DS18B20 = venkovní teplota
+  // Pozn.: svět NIKDY nereaguje na mozek, tady jen mapujeme hodnoty do „senzorů“.
+  const airTempC = num(env.airTempC, num(env.temperature, 0));
+  const boxTempC = num(env.boxTempC, airTempC);
+  const humidity = num(state.device.humidity, num(env.humidity, 50));
+
+  state.device.sensors.sht40 = {
+    tempC: Number(boxTempC.toFixed(2)),
+    humidity: Number(humidity.toFixed(1))
+  };
+  state.device.sensors.ds18b20 = {
+    tempC: Number(airTempC.toFixed(2))
+  };
+
+  // =============================
+  // INA219 (2×): solar in / load out
+  // =============================
+  // Vstupní větev: panel -> nabíjení (cca 5V, no-load se blíží Voc)
+  const dayFactor = clamp(irr / 1000, 0, 1);
+  const inV = solarInW_raw > 0.02
+    ? clamp(5.0 + (1 - dayFactor) * 1.1, 4.8, panelVocV)
+    : 0;
+  const inA = inV > 0 ? (solarInW_raw / inV) : 0;
+
+  // Výstupní větev: baterie -> zátěž
+  const batV = num(state.device.battery.voltage, 3.7);
+  const outA = batV > 0 ? (loadW_raw / batV) : 0;
+
+  state.device.sensors.ina219 = {
+    solarIn: {
+      voltageV: Number(inV.toFixed(3)),
+      currentA: Number(inA.toFixed(3)),
+      powerW: Number(solarInW_raw.toFixed(3))
+    },
+    loadOut: {
+      voltageV: Number(batV.toFixed(3)),
+      currentA: Number(outA.toFixed(3)),
+      powerW: Number(loadW_raw.toFixed(3))
+    }
+  };
 
   // Sensors mirrors
   const t = env.temperature ?? 0;
