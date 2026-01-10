@@ -1,6 +1,6 @@
 // memory.js
 // kompatibilní vrstva pro brain.js + ukládání grafových řad
-// - drží "today" time-series (temperature/energyIn/energyOut)
+// - drží "today" time-series (temperature/energyIn/energyOut/light/brainRisk)
 // - drží "days" historii
 // - přidává rememberExperience(), aby brain.js nespadl
 
@@ -64,6 +64,8 @@ export function initMemory(state) {
     state.memory.today = {
       key,
       temperature: [],
+      light: [],
+      brainRisk: [],
       energyIn: [],
       energyOut: [],
       totals: { energyInWh: 0, energyOutWh: 0 },
@@ -85,6 +87,8 @@ function rolloverDayIfNeeded(state) {
     state.memory.days.push({
       key: state.memory.today.key,
       temperature: state.memory.today.temperature,
+      light: state.memory.today.light,
+      brainRisk: state.memory.today.brainRisk,
       energyIn: state.memory.today.energyIn,
       energyOut: state.memory.today.energyOut,
       totals: state.memory.today.totals,
@@ -97,6 +101,8 @@ function rolloverDayIfNeeded(state) {
     state.memory.today = {
       key: nowKey,
       temperature: [],
+      light: [],
+      brainRisk: [],
       energyIn: [],
       energyOut: [],
       totals: { energyInWh: 0, energyOutWh: 0 },
@@ -108,11 +114,6 @@ function rolloverDayIfNeeded(state) {
 /**
  * brain.js kompatibilita:
  * brain importuje rememberExperience() -> musíme exportovat.
- * Nic to nerozbije, jen se ukládají "zkušenosti" pro debug / budoucí učení.
- *
- * Použití je tolerantní:
- *  - rememberExperience(state, expObj)
- *  - rememberExperience(state, type, payload)
  */
 export function rememberExperience(state, a, b) {
   initMemory(state);
@@ -143,6 +144,7 @@ export function rememberExperience(state, a, b) {
  * memoryTick:
  * - sběr grafových bodů podle collectionIntervalSec (mozek / device.power)
  * - ukládá výkon (W) a integruje Wh do totals
+ * - nově ukládá i světlo + trend rizika (pro grafy v UI)
  */
 export function memoryTick(state, dtMs = 1000) {
   initMemory(state);
@@ -163,6 +165,18 @@ export function memoryTick(state, dtMs = 1000) {
 
   if (Number.isFinite(tempC)) {
     pushPoint(today.temperature, { t: timeLabelPrague(now), v: Math.round(tempC * 100) / 100 }, 2500);
+  }
+
+  // světlo (lux)
+  const lux = num(safeGet(state, "world.environment.light", NaN), NaN);
+  if (Number.isFinite(lux)) {
+    pushPoint(today.light, { t: timeLabelPrague(now), v: Math.round(lux) }, 2500);
+  }
+
+  // trend rizika (0-100)
+  const risk = num(safeGet(state, "brain.risk", NaN), NaN);
+  if (Number.isFinite(risk)) {
+    pushPoint(today.brainRisk, { t: timeLabelPrague(now), v: Math.round(risk * 10) / 10 }, 2500);
   }
 
   const solarInW = num(safeGet(state, "device.power.solarInW", 0), 0);

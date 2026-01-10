@@ -46,13 +46,25 @@ export function deviceTick(state) {
   state.device.battery.soc = clamp(state.device.battery.soc + deltaSoc, 0, 1);
   state.device.battery.voltage = Number((3.0 + state.device.battery.soc * 1.2).toFixed(2));
 
+  // UI kompatibilita
+  state.device.battery.percent = Math.round(state.device.battery.soc * 100);
+  state.device.battery.capacityWh = batteryWh;
+  state.device.battery.remainingWh = Number((state.device.battery.soc * batteryWh).toFixed(3));
+
   // “sensor” values on device (zaokrouhlené)
   const t = state.world.environment.temperature ?? 0;
   state.device.temperature = Number(Number(t).toFixed(2));
-  if (state.device.humidity === undefined) state.device.humidity = 50;
-  state.device.light = light;
 
-  // --- Kompatibilní zrcadla pro UI (aby nepsalo --) ---
+  // world environment může mít air humidity atd, ale tady pro jednoduchý model držíme “vlhkost”
+  // (pokud ji svět nemá, necháme default 50)
+  if (state.device.humidity === undefined || state.device.humidity === null) {
+    state.device.humidity = 50;
+  }
+
+  // light mirror on device
+  state.device.light = Math.round(light);
+
+  // --- zrcadla pro UI (aby nepsalo --) ---
   // Spousta UI si bere SOC jako procenta a výkon rovnou z device.*
   state.device.socPct = Math.round(state.device.battery.soc * 100); // 0..100
   state.device.solarInW = solarInW;
