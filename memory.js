@@ -215,9 +215,13 @@ export function memoryTick(state, dtMs = 1000) {
   if (today._lastSampleTs && now - today._lastSampleTs < intervalMs) return;
   today._lastSampleTs = now;
 
+  // ✅ B 3.36.0: teplota pro grafy = teplota BOXu (vnitřní).
+  // Fallbacky: device.sensors.sht40.tempC -> device.temperature -> world airTempC.
   const tempC =
-    num(safeGet(state, "world.environment.airTempC", NaN), NaN) ??
-    num(safeGet(state, "device.temperature", NaN), NaN);
+    num(safeGet(state, "world.environment.boxTempC", NaN), NaN) ??
+    num(safeGet(state, "device.sensors.sht40.tempC", NaN), NaN) ??
+    num(safeGet(state, "device.temperature", NaN), NaN) ??
+    num(safeGet(state, "world.environment.airTempC", NaN), NaN);
 
   if (Number.isFinite(tempC)) {
     pushPoint(today.temperature, { t: timeLabelPrague(now), v: Math.round(tempC * 100) / 100 }, 2500);

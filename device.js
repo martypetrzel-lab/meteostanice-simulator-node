@@ -102,10 +102,44 @@ export function deviceTick(state, dtMs = 1000) {
   // =============================
   // Sensor model (future HW ready)
   // =============================
-  // SHT40 = vnitřní teplota + vlhkost
-  // DS18B20 = venkovní teplota
+  // ✅ B 3.36.0 změna:
+  // - „vnitřní teplota“ = teplota uvnitř boxu (SHT40)
+  // - box má setrvačnost vůči venkovní teplotě (DS18B20) + mírné zahřívání elektronikou
+  // - UI pak zobrazuje JEN jednu vnitřní teplotu (box) + venkovní
+  //
+  // SHT40 = box temp + vlhkost
+  // DS18B20 = venkovní temp
+
   const airTempC = num(env.airTempC, num(env.temperature, 0));
-  const boxTempC = num(env.boxTempC, airTempC);
+
+  // --- jednoduchý termální model boxu (časová konstanta ~30 min)
+  // boxTemp(t+dt) = boxTemp + (airTemp - boxTemp) * alpha + heat
+  // heat ~ ztráty z loadu + slabý vliv slunce; větrák přidá lehké ochlazení
+  const dtSecBox = Math.max(0, num(dtMs, 1000)) / 1000;
+  const tauSec = Math.max(60, num(cfg.boxTauSec, 30 * 60)); // default 30 min
+  const alpha = clamp(dtSecBox / tauSec, 0, 1);
+
+  const prevBox = num(state.device?.sensors?._boxTempC, airTempC);
+
+  // topení: část z loadu se projeví jako teplo v boxu (velmi zjednodušeně)
+  const heatFromLoadCPerWPerSec = num(cfg.boxHeatCPerWPerSec, 0.00035);
+  const heatLoad = loadW_raw * heatFromLoadCPerWPerSec * dtSecBox;
+
+  // slunce: malé přitápění, když je světlo (zohlední se irradiance)
+  const heatFromSunCPerWPerSec = num(cfg.boxSunHeatCPerWPerSec, 0.00018);
+  const heatSun = solarInW_raw * heatFromSunCPerWPerSec * dtSecBox;
+
+  // větrák: lehké ochlazení (proti přehřátí boxu)
+  const fanCoolCPerSec = num(cfg.boxFanCoolCPerSec, 0.0009);
+  const coolFan = state.device.fan ? fanCoolCPerSec * dtSecBox : 0;
+
+  let boxTempC = prevBox + (airTempC - prevBox) * alpha + heatLoad + heatSun - coolFan;
+  // omez na rozumné meze, ať to při bugách neuteče
+  boxTempC = clamp(boxTempC, -40, 85);
+
+  // persist
+  state.device.sensors._boxTempC = Number(boxTempC.toFixed(3));
+
   const humidity = num(state.device.humidity, num(env.humidity, 50));
 
   state.device.sensors.sht40 = {
@@ -115,6 +149,12 @@ export function deviceTick(state, dtMs = 1000) {
   state.device.sensors.ds18b20 = {
     tempC: Number(airTempC.toFixed(2))
   };
+
+  // Mirror do world.environment pro jednotné čtení v UI (publictest)
+  state.world.environment.outdoorTempC = Number(airTempC.toFixed(2));
+  state.world.environment.boxTempC = Number(boxTempC.toFixed(2));
+  state.world.environment.indoorTempC = Number(boxTempC.toFixed(2));
+  state.world.environment.indoorHumPct = Number(humidity.toFixed(1));
 
   // =============================
   // INA219 (2×): solar in / load out
@@ -144,8 +184,8 @@ export function deviceTick(state, dtMs = 1000) {
   };
 
   // Sensors mirrors (kompatibilita)
-  const t = env.temperature ?? 0;
-  state.device.temperature = Number(num(t, 0).toFixed(2));
+  // ✅ „device.temperature“ = teplota boxu (vnitřní), aby se nepletly dva vnitřní senzory
+  state.device.temperature = Number(num(boxTempC, 0).toFixed(2));
   if (state.device.humidity === undefined || state.device.humidity === null) state.device.humidity = 50;
   state.device.light = Math.round(lightLux);
 
