@@ -3,10 +3,15 @@
 // - drží "today" time-series (temperature/energyIn/energyOut/light/brainRisk)
 // - drží "days" historii
 // - přidává rememberExperience(), aby brain.js nespadl
+// - B 3.35.0+: event log pro UI (UDÁLOSTI) s anti-spam
 
 const TZ = "Europe/Prague";
 const MAX_DAYS = 30;
 const MAX_EXPERIENCES = 500;
+const MAX_EVENTS = 500;
+
+// anti-spam: stejný event (key+action+level) max 1× za tento interval
+const EVENT_SPAM_WINDOW_MS = 10 * 60 * 1000;
 
 function todayKeyPrague(ts) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -75,6 +80,10 @@ export function initMemory(state) {
 
   if (!Array.isArray(state.memory.days)) state.memory.days = [];
   if (!Array.isArray(state.memory.experiences)) state.memory.experiences = [];
+  if (!Array.isArray(state.memory.events)) state.memory.events = [];
+
+  // pohodlný alias pro frontend (state.events)
+  if (!Array.isArray(state.events)) state.events = state.memory.events;
 }
 
 function rolloverDayIfNeeded(state) {
@@ -141,6 +150,53 @@ export function rememberExperience(state, a, b) {
 }
 
 /**
+ * Event log (B 3.35.0+):
+ * - enter/exit události (např. změna battery-safe režimu)
+ * - anti-spam: stejný event (key+action+level) max 1× za EVENT_SPAM_WINDOW_MS
+ *
+ * Event schema (minimal):
+ * { ts, t, key, action: 'ENTER'|'EXIT'|'INFO', level: 'NORMAL'|'CAUTION'|'CRITICAL'|'PROTECT', message, meta }
+ */
+export function logEvent(state, event) {
+  initMemory(state);
+
+  const now = state.time?.now ?? Date.now();
+  const e = event || {};
+
+  const record = {
+    ts: now,
+    t: timeLabelPrague(now),
+    key: String(e.key || "event"),
+    action: String(e.action || "INFO").toUpperCase(),
+    level: String(e.level || "NORMAL").toUpperCase(),
+    message: String(e.message || ""),
+    meta: e.meta ?? null,
+  };
+
+  // anti-spam: pokud poslední podobný event byl nedávno, tak ho ignorujeme
+  const arr = state.memory.events;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const prev = arr[i];
+    if (!prev) continue;
+    if (prev.key === record.key && prev.action === record.action && prev.level === record.level) {
+      if (now - (prev.ts || 0) < EVENT_SPAM_WINDOW_MS) {
+        return false;
+      }
+      break;
+    }
+    // rychlé ukončení – moc staré už neřešíme
+    if (now - (prev.ts || 0) > EVENT_SPAM_WINDOW_MS) break;
+  }
+
+  arr.push(record);
+  if (arr.length > MAX_EVENTS) arr.splice(0, arr.length - MAX_EVENTS);
+
+  // alias
+  state.events = arr;
+  return true;
+}
+
+/**
  * memoryTick:
  * - sběr grafových bodů podle collectionIntervalSec (mozek / device.power)
  * - ukládá výkon (W) a integruje Wh do totals
@@ -182,29 +238,12 @@ export function memoryTick(state, dtMs = 1000) {
   const solarInW = num(safeGet(state, "device.power.solarInW", 0), 0);
   const loadW = num(safeGet(state, "device.power.loadW", 0), 0);
 
-  // Preferujeme přesnější integraci z T 3.33.0 (energy.js).
-  const whInToday = num(safeGet(state, "energy.totals.wh_in_today", NaN), NaN);
-  const whOutToday = num(safeGet(state, "energy.totals.wh_out_today", NaN), NaN);
-  if (Number.isFinite(whInToday) && Number.isFinite(whOutToday)) {
-    today.totals.energyInWh = whInToday;
-    today.totals.energyOutWh = whOutToday;
-  } else {
-    // fallback (starší model)
-    const inWh = solarInW * (intervalSec / 3600);
-    const outWh = loadW * (intervalSec / 3600);
-    today.totals.energyInWh += inWh;
-    today.totals.energyOutWh += outWh;
-  }
+  const inWh = solarInW * (intervalSec / 3600);
+  const outWh = loadW * (intervalSec / 3600);
 
-  // W grafy: preferujeme INA p_raw (T 3.33.0), fallback na device.power.
-  const pInW = num(safeGet(state, "energy.ina_in.p_raw", NaN), NaN);
-  const pOutW = num(safeGet(state, "energy.ina_out.p_raw", NaN), NaN);
-  pushPoint(today.energyIn, {
-    t: timeLabelPrague(now),
-    v: Math.round((Number.isFinite(pInW) ? pInW : solarInW) * 1000) / 1000,
-  }, 2500);
-  pushPoint(today.energyOut, {
-    t: timeLabelPrague(now),
-    v: Math.round((Number.isFinite(pOutW) ? pOutW : loadW) * 1000) / 1000,
-  }, 2500);
+  today.totals.energyInWh += inWh;
+  today.totals.energyOutWh += outWh;
+
+  pushPoint(today.energyIn, { t: timeLabelPrague(now), v: Math.round(solarInW * 1000) / 1000 }, 2500);
+  pushPoint(today.energyOut, { t: timeLabelPrague(now), v: Math.round(loadW * 1000) / 1000 }, 2500);
 }
